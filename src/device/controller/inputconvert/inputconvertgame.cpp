@@ -12,16 +12,11 @@
 #include "inputconvertgame.h"
 
 #define CURSOR_POS_CHECK 50
-#define STEER_WHEEL_DETOUCH_DELAY_MS 500
 
 InputConvertGame::InputConvertGame(Controller *controller) : InputConvertNormal(controller) {
     m_ctrlSteerWheel.delayData.timer = new QTimer(this);
     m_ctrlSteerWheel.delayData.timer->setSingleShot(true);
     connect(m_ctrlSteerWheel.delayData.timer, &QTimer::timeout, this, &InputConvertGame::onSteerWheelTimer);
-
-    m_ctrlSteerWheel.delayData.detouchTimer = new QTimer(this);
-    m_ctrlSteerWheel.delayData.detouchTimer->setSingleShot(true);
-    connect(m_ctrlSteerWheel.delayData.detouchTimer, &QTimer::timeout, this, &InputConvertGame::onSteerWheelDetouchTimer);
 }
 
 InputConvertGame::~InputConvertGame() {}
@@ -310,25 +305,17 @@ void InputConvertGame::onSteerWheelTimer() {
     m_ctrlSteerWheel.delayData.currentPos = m_ctrlSteerWheel.delayData.queuePos.dequeue();
     sendTouchMoveEvent(id, m_ctrlSteerWheel.delayData.currentPos);
 
+    // finished returning to center with no keys held -> lift finger
+    if (m_ctrlSteerWheel.delayData.queuePos.empty() && m_ctrlSteerWheel.delayData.pressedNum == 0) {
+        sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
+        detachTouchID(m_ctrlSteerWheel.touchKey);
+        m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+        return;
+    }
+
     if(!m_ctrlSteerWheel.delayData.queuePos.empty()) {
         m_ctrlSteerWheel.delayData.timer->start(m_ctrlSteerWheel.delayData.queueTimer.dequeue());
     }
-}
-
-void InputConvertGame::onSteerWheelDetouchTimer()
-{
-    if (m_ctrlSteerWheel.delayData.pressedNum != 0) {
-        return;
-    }
-
-    int id = getTouchID(m_ctrlSteerWheel.touchKey);
-    if (id < 0) {
-        return;
-    }
-
-    sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
-    detachTouchID(m_ctrlSteerWheel.touchKey);
-    m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
 }
 
 void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from)
@@ -367,21 +354,39 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     }
     m_ctrlSteerWheel.delayData.pressedNum = pressedNum;
 
-    // last key release: keep the finger down briefly so a quick direction switch can continue
+    // last key release: keep pressing and slide back to center, then lift
     if (pressedNum == 0) {
-        if (m_ctrlSteerWheel.delayData.timer->isActive()) {
-            m_ctrlSteerWheel.delayData.timer->stop();
-            m_ctrlSteerWheel.delayData.queueTimer.clear();
-            m_ctrlSteerWheel.delayData.queuePos.clear();
-        }
-        if (getTouchID(m_ctrlSteerWheel.touchKey) >= 0) {
-            m_ctrlSteerWheel.delayData.detouchTimer->start(STEER_WHEEL_DETOUCH_DELAY_MS);
-        }
-        return;
-    }
+        m_ctrlSteerWheel.delayData.timer->stop();
+        m_ctrlSteerWheel.delayData.queueTimer.clear();
+        m_ctrlSteerWheel.delayData.queuePos.clear();
 
-    if (m_ctrlSteerWheel.delayData.detouchTimer->isActive()) {
-        m_ctrlSteerWheel.delayData.detouchTimer->stop();
+        int id = getTouchID(m_ctrlSteerWheel.touchKey);
+        if (id < 0) {
+            return;
+        }
+
+        const QPointF &centerPos = node.data.steerWheel.centerPos;
+        const QPointF &currentPos = m_ctrlSteerWheel.delayData.currentPos;
+        const QPointF delta = currentPos - centerPos;
+        if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) {
+            sendTouchUpEvent(id, currentPos);
+            detachTouchID(m_ctrlSteerWheel.touchKey);
+            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+            return;
+        }
+
+        getDelayQueue(currentPos, centerPos,
+                      0.01f, 0.002f, 2, 8,
+                      m_ctrlSteerWheel.delayData.queuePos,
+                      m_ctrlSteerWheel.delayData.queueTimer);
+        if (m_ctrlSteerWheel.delayData.queuePos.empty()) {
+            sendTouchUpEvent(id, currentPos);
+            detachTouchID(m_ctrlSteerWheel.touchKey);
+            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+            return;
+        }
+        m_ctrlSteerWheel.delayData.timer->start();
+        return;
     }
 
     // process steer wheel key event
