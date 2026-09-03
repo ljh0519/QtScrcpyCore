@@ -75,6 +75,7 @@ protected:
 
 private slots:
     void onSteerWheelTimer();
+    void onSteerWheelDetouchTimer();
     void onDragTimer();
 
 private:
@@ -101,6 +102,7 @@ private:
         struct {
             QPointF currentPos;
             QTimer* timer = nullptr;
+            QTimer* detouchTimer = nullptr;
             QQueue<QPointF> queuePos;
             QQueue<quint32> queueTimer;
             int pressedNum = 0;
