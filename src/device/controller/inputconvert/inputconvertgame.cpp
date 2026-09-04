@@ -283,9 +283,18 @@ void InputConvertGame::getDelayQueue(const QPointF& start, const QPointF& end,
     QQueue<QPointF> queue;
     QQueue<quint32> queue2;
 
-    // Always reach the exact end. ceil avoids stopping short when maxDelta/distanceStep is not integer;
-    // at least one step covers very short reverse/redirect moves that used to produce an empty queue.
-    int steps = maxDelta < 1e-12 ? 0 : qMax(1, qCeil(maxDelta / distanceStep));
+    // Always reach the exact end. ceil-style step count avoids stopping short when
+    // maxDelta/distanceStep is not integer; at least one step covers very short moves.
+    int steps = 0;
+    if (maxDelta >= 1e-12) {
+        steps = static_cast<int>(maxDelta / distanceStep);
+        if (static_cast<double>(steps) * distanceStep < maxDelta) {
+            ++steps;
+        }
+        if (steps < 1) {
+            steps = 1;
+        }
+    }
     if (steps > 0) {
         dx /= steps;
         dy /= steps;
@@ -310,24 +319,28 @@ void InputConvertGame::getDelayQueue(const QPointF& start, const QPointF& end,
 }
 
 void InputConvertGame::onSteerWheelTimer() {
-    if(m_ctrlSteerWheel.delayData.queuePos.empty()) {
-        return;
-    }
-    int id = getTouchID(m_ctrlSteerWheel.touchKey);
-    m_ctrlSteerWheel.delayData.currentPos = m_ctrlSteerWheel.delayData.queuePos.dequeue();
-    sendTouchMoveEvent(id, m_ctrlSteerWheel.delayData.currentPos);
+    // steer wheel no longer uses slide animation; kept for API compatibility
+}
 
-    // finished returning to center with no keys held -> lift finger
-    if (m_ctrlSteerWheel.delayData.queuePos.empty() && m_ctrlSteerWheel.delayData.pressedNum == 0) {
+void InputConvertGame::steerWheelStopTouch()
+{
+    if (m_ctrlSteerWheel.delayData.timer) {
+        m_ctrlSteerWheel.delayData.timer->stop();
+    }
+    m_ctrlSteerWheel.delayData.queuePos.clear();
+    m_ctrlSteerWheel.delayData.queueTimer.clear();
+    m_ctrlSteerWheel.pressedUp = false;
+    m_ctrlSteerWheel.pressedDown = false;
+    m_ctrlSteerWheel.pressedLeft = false;
+    m_ctrlSteerWheel.pressedRight = false;
+    m_ctrlSteerWheel.delayData.pressedNum = 0;
+
+    int id = getTouchID(m_ctrlSteerWheel.touchKey);
+    if (id >= 0) {
         sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
         detachTouchID(m_ctrlSteerWheel.touchKey);
-        m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
-        return;
     }
-
-    if(!m_ctrlSteerWheel.delayData.queuePos.empty()) {
-        m_ctrlSteerWheel.delayData.timer->start(m_ctrlSteerWheel.delayData.queueTimer.dequeue());
-    }
+    m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
 }
 
 void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from)
@@ -365,77 +378,33 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
         offset.rx() -= node.data.steerWheel.left.extendOffset;
     }
     m_ctrlSteerWheel.delayData.pressedNum = pressedNum;
+    m_ctrlSteerWheel.centerPos = node.data.steerWheel.centerPos;
 
-    // last key release: keep pressing and slide back to center, then lift
-    if (pressedNum == 0) {
-        m_ctrlSteerWheel.delayData.timer->stop();
-        m_ctrlSteerWheel.delayData.queueTimer.clear();
-        m_ctrlSteerWheel.delayData.queuePos.clear();
-
-        int id = getTouchID(m_ctrlSteerWheel.touchKey);
-        if (id < 0) {
-            return;
-        }
-
-        const QPointF &centerPos = node.data.steerWheel.centerPos;
-        const QPointF &currentPos = m_ctrlSteerWheel.delayData.currentPos;
-        const QPointF delta = currentPos - centerPos;
-        if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) {
-            sendTouchUpEvent(id, currentPos);
-            detachTouchID(m_ctrlSteerWheel.touchKey);
-            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
-            return;
-        }
-
-        getDelayQueue(currentPos, centerPos,
-                      0.01f, 0.002f, 2, 8,
-                      m_ctrlSteerWheel.delayData.queuePos,
-                      m_ctrlSteerWheel.delayData.queueTimer);
-        if (m_ctrlSteerWheel.delayData.queuePos.empty()) {
-            sendTouchUpEvent(id, currentPos);
-            detachTouchID(m_ctrlSteerWheel.touchKey);
-            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
-            return;
-        }
-        m_ctrlSteerWheel.delayData.timer->start();
-        return;
-    }
-
-    // process steer wheel key event
-    m_ctrlSteerWheel.delayData.timer->stop();
-    m_ctrlSteerWheel.delayData.queueTimer.clear();
-    m_ctrlSteerWheel.delayData.queuePos.clear();
+    const QPointF &centerPos = m_ctrlSteerWheel.centerPos;
+    // idle at center while still pressing; never TouchUp during keymap usage
+    const QPointF targetPos = (pressedNum == 0) ? centerPos : (centerPos + offset);
 
     const bool touching = getTouchID(m_ctrlSteerWheel.touchKey) >= 0;
-    const QPointF targetPos = node.data.steerWheel.centerPos + offset;
     if (!touching) {
-        if (!flag) {
+        // only start a touch on key press; release with no active touch is a no-op
+        if (!flag || pressedNum == 0) {
             return;
         }
         m_ctrlSteerWheel.touchKey = from->key();
         int id = attachTouchID(m_ctrlSteerWheel.touchKey);
-        m_ctrlSteerWheel.delayData.currentPos = node.data.steerWheel.centerPos;
-        sendTouchDownEvent(id, node.data.steerWheel.centerPos);
-
-        getDelayQueue(node.data.steerWheel.centerPos, targetPos,
-                      0.01f, 0.002f, 2, 8,
-                      m_ctrlSteerWheel.delayData.queuePos,
-                      m_ctrlSteerWheel.delayData.queueTimer);
-    } else {
-        getDelayQueue(m_ctrlSteerWheel.delayData.currentPos, targetPos,
-                      0.01f, 0.002f, 2, 8,
-                      m_ctrlSteerWheel.delayData.queuePos,
-                      m_ctrlSteerWheel.delayData.queueTimer);
+        m_ctrlSteerWheel.delayData.currentPos = centerPos;
+        sendTouchDownEvent(id, centerPos);
+        m_ctrlSteerWheel.delayData.currentPos = targetPos;
+        sendTouchMoveEvent(id, targetPos);
+        return;
     }
-    if (!m_ctrlSteerWheel.delayData.queuePos.empty()) {
-        m_ctrlSteerWheel.delayData.timer->start();
-    } else if (touching) {
-        // already at/near target: still snap so reverse-then-repress cannot leave a stale position
-        int id = getTouchID(m_ctrlSteerWheel.touchKey);
+
+    // already pressing: only move, never lift
+    int id = getTouchID(m_ctrlSteerWheel.touchKey);
+    if (m_ctrlSteerWheel.delayData.currentPos != targetPos) {
         m_ctrlSteerWheel.delayData.currentPos = targetPos;
         sendTouchMoveEvent(id, targetPos);
     }
-    return;
 }
 
 // -------- key event --------
@@ -765,6 +734,12 @@ bool InputConvertGame::switchGameMap()
     m_gameMap = !m_gameMap;
     qInfo() << QString("current keymap mode: %1").arg(m_gameMap ? "custom" : "normal");
 
+    if (!m_gameMap) {
+        stopMouseMoveTimer();
+        mouseMoveStopTouch();
+        steerWheelStopTouch();
+    }
+
     if (!m_keyMap.isValidMouseMoveMap()) {
         return m_gameMap;
     }
@@ -773,11 +748,6 @@ bool InputConvertGame::switchGameMap()
     emit grabCursor(m_gameMap);
 #endif
     hideMouseCursor(m_gameMap);
-
-    if (!m_gameMap) {
-        stopMouseMoveTimer();
-        mouseMoveStopTouch();
-    }
 
     return m_gameMap;
 }
