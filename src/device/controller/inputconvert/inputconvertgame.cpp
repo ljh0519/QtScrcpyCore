@@ -276,21 +276,33 @@ void InputConvertGame::getDelayQueue(const QPointF& start, const QPointF& end,
     double x2 = end.x();
     double y2 = end.y();
 
-    double dx=x2-x1;
-    double dy=y2-y1;
-    double e=(fabs(dx)>fabs(dy))?fabs(dx):fabs(dy);
-    e /= distanceStep;
-    dx/=e;
-    dy/=e;
+    double dx = x2 - x1;
+    double dy = y2 - y1;
+    double maxDelta = qMax(fabs(dx), fabs(dy));
 
     QQueue<QPointF> queue;
     QQueue<quint32> queue2;
-    for(int i=1;i<=e;i++) {
-        QPointF pos(x1+(QRandomGenerator::global()->bounded(posStepconst*2)-posStepconst), y1+(QRandomGenerator::global()->bounded(posStepconst*2)-posStepconst));
-        queue.enqueue(pos);
-        queue2.enqueue(QRandomGenerator::global()->bounded(lowestTimer, highestTimer));
-        x1+=dx;
-        y1+=dy;
+
+    // Always reach the exact end. ceil avoids stopping short when maxDelta/distanceStep is not integer;
+    // at least one step covers very short reverse/redirect moves that used to produce an empty queue.
+    int steps = maxDelta < 1e-12 ? 0 : qMax(1, qCeil(maxDelta / distanceStep));
+    if (steps > 0) {
+        dx /= steps;
+        dy /= steps;
+        for (int i = 1; i <= steps; ++i) {
+            x1 += dx;
+            y1 += dy;
+            QPointF pos;
+            if (i == steps) {
+                // last point must be exact target (no jitter), otherwise steer wheel often stops before the edge
+                pos = end;
+            } else {
+                pos = QPointF(x1 + (QRandomGenerator::global()->bounded(posStepconst * 2) - posStepconst),
+                              y1 + (QRandomGenerator::global()->bounded(posStepconst * 2) - posStepconst));
+            }
+            queue.enqueue(pos);
+            queue2.enqueue(QRandomGenerator::global()->bounded(lowestTimer, highestTimer));
+        }
     }
 
     queuePos = queue;
@@ -395,6 +407,7 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     m_ctrlSteerWheel.delayData.queuePos.clear();
 
     const bool touching = getTouchID(m_ctrlSteerWheel.touchKey) >= 0;
+    const QPointF targetPos = node.data.steerWheel.centerPos + offset;
     if (!touching) {
         if (!flag) {
             return;
@@ -404,18 +417,23 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
         m_ctrlSteerWheel.delayData.currentPos = node.data.steerWheel.centerPos;
         sendTouchDownEvent(id, node.data.steerWheel.centerPos);
 
-        getDelayQueue(node.data.steerWheel.centerPos, node.data.steerWheel.centerPos+offset,
+        getDelayQueue(node.data.steerWheel.centerPos, targetPos,
                       0.01f, 0.002f, 2, 8,
                       m_ctrlSteerWheel.delayData.queuePos,
                       m_ctrlSteerWheel.delayData.queueTimer);
     } else {
-        getDelayQueue(m_ctrlSteerWheel.delayData.currentPos, node.data.steerWheel.centerPos+offset,
+        getDelayQueue(m_ctrlSteerWheel.delayData.currentPos, targetPos,
                       0.01f, 0.002f, 2, 8,
                       m_ctrlSteerWheel.delayData.queuePos,
                       m_ctrlSteerWheel.delayData.queueTimer);
     }
     if (!m_ctrlSteerWheel.delayData.queuePos.empty()) {
         m_ctrlSteerWheel.delayData.timer->start();
+    } else if (touching) {
+        // already at/near target: still snap so reverse-then-repress cannot leave a stale position
+        int id = getTouchID(m_ctrlSteerWheel.touchKey);
+        m_ctrlSteerWheel.delayData.currentPos = targetPos;
+        sendTouchMoveEvent(id, targetPos);
     }
     return;
 }
