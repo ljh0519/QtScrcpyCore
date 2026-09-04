@@ -283,9 +283,18 @@ void InputConvertGame::getDelayQueue(const QPointF& start, const QPointF& end,
     QQueue<QPointF> queue;
     QQueue<quint32> queue2;
 
-    // Always reach the exact end. ceil avoids stopping short when maxDelta/distanceStep is not integer;
-    // at least one step covers very short reverse/redirect moves that used to produce an empty queue.
-    int steps = maxDelta < 1e-12 ? 0 : qMax(1, qCeil(maxDelta / distanceStep));
+    // Always reach the exact end. ceil-style step count avoids stopping short when
+    // maxDelta/distanceStep is not integer; at least one step covers very short moves.
+    int steps = 0;
+    if (maxDelta >= 1e-12) {
+        steps = static_cast<int>(maxDelta / distanceStep);
+        if (static_cast<double>(steps) * distanceStep < maxDelta) {
+            ++steps;
+        }
+        if (steps < 1) {
+            steps = 1;
+        }
+    }
     if (steps > 0) {
         dx /= steps;
         dy /= steps;
