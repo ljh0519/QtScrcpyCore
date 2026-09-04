@@ -89,6 +89,7 @@ public:
             {
                 QPointF centerPos = { 0.0, 0.0 };
                 KeyNode left, right, up, down;
+                KeyNode shift; // optional: key + pos, replaces up target while held
             } steerWheel;
             struct
             {

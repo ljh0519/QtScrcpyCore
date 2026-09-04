@@ -96,6 +96,7 @@ private:
         bool pressedDown = false;
         bool pressedLeft = false;
         bool pressedRight = false;
+        bool pressedShift = false;
 
         // for delay
         struct {

@@ -350,16 +350,26 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
         m_ctrlSteerWheel.pressedRight = flag;
     } else if (key == node.data.steerWheel.down.key) {
         m_ctrlSteerWheel.pressedDown = flag;
-    } else { // left
+    } else if (key == node.data.steerWheel.left.key) {
         m_ctrlSteerWheel.pressedLeft = flag;
+    } else if (node.data.steerWheel.shift.type != KeyMap::AT_INVALID && key == node.data.steerWheel.shift.key) {
+        m_ctrlSteerWheel.pressedShift = flag;
+    } else {
+        return;
     }
 
     // calc offset and pressed number
     QPointF offset(0.0, 0.0);
     int pressedNum = 0;
+    const bool shiftActive = m_ctrlSteerWheel.pressedShift && node.data.steerWheel.shift.type != KeyMap::AT_INVALID;
     if (m_ctrlSteerWheel.pressedUp) {
         ++pressedNum;
-        offset.ry() -= node.data.steerWheel.up.extendOffset;
+        if (shiftActive) {
+            // shift overrides up target to absolute shiftPos
+            offset += node.data.steerWheel.shift.pos - node.data.steerWheel.centerPos;
+        } else {
+            offset.ry() -= node.data.steerWheel.up.extendOffset;
+        }
     }
     if (m_ctrlSteerWheel.pressedRight) {
         ++pressedNum;
@@ -419,6 +429,10 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     const QPointF targetPos = node.data.steerWheel.centerPos + offset;
     if (!touching) {
         if (!flag) {
+            return;
+        }
+        // shift alone must not start a touch; need at least one direction key
+        if (node.data.steerWheel.shift.type != KeyMap::AT_INVALID && key == node.data.steerWheel.shift.key) {
             return;
         }
         m_ctrlSteerWheel.touchKey = from->key();

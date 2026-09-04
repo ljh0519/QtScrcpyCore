@@ -258,6 +258,17 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.steerWheel.right = { rightKey.first, rightKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "rightOffset") };
                 keyMapNode.data.steerWheel.up = { upKey.first, upKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "upOffset") };
                 keyMapNode.data.steerWheel.down = { downKey.first, downKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "downOffset") };
+                keyMapNode.data.steerWheel.shift = KeyNode();
+
+                // optional: shiftKey + shiftPos overrides up-direction target while shift is held
+                if (node.contains("shiftKey") && checkItemPos(node, "shiftPos")) {
+                    QPair<ActionType, int> shiftKey = getItemKey(node, "shiftKey");
+                    if (shiftKey.first != AT_INVALID) {
+                        keyMapNode.data.steerWheel.shift = { shiftKey.first, shiftKey.second, getItemPos(node, "shiftPos") };
+                    } else {
+                        qWarning() << "json warning: steerWheel invalid shiftKey: " << node.value("shiftKey").toString();
+                    }
+                }
 
                 keyMapNode.data.steerWheel.centerPos = getItemPos(node, "centerPos");
                 m_idxSteerWheel = m_keyMapNodes.size();
@@ -397,6 +408,10 @@ void KeyMap::makeReverseMap()
             mu.insert(node.data.steerWheel.up.key, &node);
             QMultiHash<int, KeyMapNode *> &md = node.data.steerWheel.down.type == AT_KEY ? m_rmapKey : m_rmapMouse;
             md.insert(node.data.steerWheel.down.key, &node);
+            if (node.data.steerWheel.shift.type != AT_INVALID) {
+                QMultiHash<int, KeyMapNode *> &ms = node.data.steerWheel.shift.type == AT_KEY ? m_rmapKey : m_rmapMouse;
+                ms.insert(node.data.steerWheel.shift.key, &node);
+            }
         } break;
         case KMT_DRAG: {
             QMultiHash<int, KeyMapNode *> &m = node.data.drag.keyNode.type == AT_KEY ? m_rmapKey : m_rmapMouse;
