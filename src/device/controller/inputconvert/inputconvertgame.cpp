@@ -323,6 +323,12 @@ void InputConvertGame::onSteerWheelTimer() {
         return;
     }
     int id = getTouchID(m_ctrlSteerWheel.touchKey);
+    if (id < 0) {
+        m_ctrlSteerWheel.delayData.queuePos.clear();
+        m_ctrlSteerWheel.delayData.queueTimer.clear();
+        m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+        return;
+    }
     m_ctrlSteerWheel.delayData.currentPos = m_ctrlSteerWheel.delayData.queuePos.dequeue();
     sendTouchMoveEvent(id, m_ctrlSteerWheel.delayData.currentPos);
 
@@ -343,6 +349,9 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
 {
     int key = from->key();
     bool flag = from->type() == QEvent::KeyPress;
+    const bool hadDirection = m_ctrlSteerWheel.pressedUp || m_ctrlSteerWheel.pressedDown
+            || m_ctrlSteerWheel.pressedLeft || m_ctrlSteerWheel.pressedRight;
+
     // identify keys
     if (key == node.data.steerWheel.up.key) {
         m_ctrlSteerWheel.pressedUp = flag;
@@ -385,38 +394,26 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     }
     m_ctrlSteerWheel.delayData.pressedNum = pressedNum;
 
-    // last key release: keep pressing and slide back to center, then lift
+    const QPointF &centerPos = node.data.steerWheel.centerPos;
+
+    // last direction released: snap back to center and always lift.
+    // Do not leave a parked touch at center — Android may invalidate it after ~1s idle,
+    // then the next press only sends MOVE on a dead pointer and appears unresponsive.
     if (pressedNum == 0) {
         m_ctrlSteerWheel.delayData.timer->stop();
         m_ctrlSteerWheel.delayData.queueTimer.clear();
         m_ctrlSteerWheel.delayData.queuePos.clear();
 
         int id = getTouchID(m_ctrlSteerWheel.touchKey);
-        if (id < 0) {
-            return;
-        }
-
-        const QPointF &centerPos = node.data.steerWheel.centerPos;
-        const QPointF &currentPos = m_ctrlSteerWheel.delayData.currentPos;
-        const QPointF delta = currentPos - centerPos;
-        if (qFuzzyIsNull(delta.x()) && qFuzzyIsNull(delta.y())) {
-            sendTouchUpEvent(id, currentPos);
+        if (id >= 0) {
+            if (m_ctrlSteerWheel.delayData.currentPos != centerPos) {
+                m_ctrlSteerWheel.delayData.currentPos = centerPos;
+                sendTouchMoveEvent(id, centerPos);
+            }
+            sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
             detachTouchID(m_ctrlSteerWheel.touchKey);
-            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
-            return;
         }
-
-        getDelayQueue(currentPos, centerPos,
-                      0.01f, 0.002f, 2, 8,
-                      m_ctrlSteerWheel.delayData.queuePos,
-                      m_ctrlSteerWheel.delayData.queueTimer);
-        if (m_ctrlSteerWheel.delayData.queuePos.empty()) {
-            sendTouchUpEvent(id, currentPos);
-            detachTouchID(m_ctrlSteerWheel.touchKey);
-            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
-            return;
-        }
-        m_ctrlSteerWheel.delayData.timer->start();
+        m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
         return;
     }
 
@@ -425,8 +422,23 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     m_ctrlSteerWheel.delayData.queueTimer.clear();
     m_ctrlSteerWheel.delayData.queuePos.clear();
 
+    // Fresh direction press while a touch id is still attached = stale gesture (e.g. idle timeout).
+    // Recycle so the next action starts with a real ACTION_DOWN.
+    const bool isDirectionKey = key == node.data.steerWheel.up.key
+            || key == node.data.steerWheel.right.key
+            || key == node.data.steerWheel.down.key
+            || key == node.data.steerWheel.left.key;
+    if (flag && isDirectionKey && !hadDirection) {
+        int staleId = getTouchID(m_ctrlSteerWheel.touchKey);
+        if (staleId >= 0) {
+            sendTouchUpEvent(staleId, m_ctrlSteerWheel.delayData.currentPos);
+            detachTouchID(m_ctrlSteerWheel.touchKey);
+            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+        }
+    }
+
     const bool touching = getTouchID(m_ctrlSteerWheel.touchKey) >= 0;
-    const QPointF targetPos = node.data.steerWheel.centerPos + offset;
+    const QPointF targetPos = centerPos + offset;
     if (!touching) {
         if (!flag) {
             return;
@@ -437,10 +449,14 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
         }
         m_ctrlSteerWheel.touchKey = from->key();
         int id = attachTouchID(m_ctrlSteerWheel.touchKey);
-        m_ctrlSteerWheel.delayData.currentPos = node.data.steerWheel.centerPos;
-        sendTouchDownEvent(id, node.data.steerWheel.centerPos);
+        if (id < 0) {
+            m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+            return;
+        }
+        m_ctrlSteerWheel.delayData.currentPos = centerPos;
+        sendTouchDownEvent(id, centerPos);
 
-        getDelayQueue(node.data.steerWheel.centerPos, targetPos,
+        getDelayQueue(centerPos, targetPos,
                       0.01f, 0.002f, 2, 8,
                       m_ctrlSteerWheel.delayData.queuePos,
                       m_ctrlSteerWheel.delayData.queueTimer);
@@ -452,7 +468,7 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     }
     if (!m_ctrlSteerWheel.delayData.queuePos.empty()) {
         m_ctrlSteerWheel.delayData.timer->start();
-    } else if (touching) {
+    } else if (touching || getTouchID(m_ctrlSteerWheel.touchKey) >= 0) {
         // already at/near target: still snap so reverse-then-repress cannot leave a stale position
         int id = getTouchID(m_ctrlSteerWheel.touchKey);
         m_ctrlSteerWheel.delayData.currentPos = targetPos;
