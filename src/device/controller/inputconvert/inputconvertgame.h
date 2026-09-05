@@ -39,6 +39,7 @@ protected:
 
     // steer wheel
     void processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
+    void steerWheelStopTouch();
 
     // click
     void processKeyClick(const QPointF &clickPos, bool clickTwice, bool switchMap, const QKeyEvent *from);
@@ -97,6 +98,7 @@ private:
         bool pressedLeft = false;
         bool pressedRight = false;
         bool pressedShift = false;
+        QPointF centerPos;
 
         // for delay
         struct {
