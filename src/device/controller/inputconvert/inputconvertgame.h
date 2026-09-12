@@ -3,6 +3,7 @@
 
 #include <QPointF>
 #include <QQueue>
+#include <QString>
 
 #include "inputconvertnormal.h"
 #include "keymap.h"
@@ -36,6 +37,7 @@ protected:
     int attachTouchID(int key);
     void detachTouchID(int key);
     int getTouchID(int key);
+    QString touchIDState() const;
 
     // steer wheel
     void processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
