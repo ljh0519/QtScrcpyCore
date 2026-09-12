@@ -75,6 +75,7 @@ public:
         AndroidMotioneventButtons buttons,
         QRect position,
         float pressure);
+    void setDebugInfo(const QString &debugInfo);
     void setInjectScrollMsgData(QRect position, float hScroll, float vScroll, AndroidMotioneventButtons buttons);
     void setGetClipboardMsgData(ControlMsg::GetClipboardCopyKey copyKey); 
     void setSetClipboardMsgData(QString &text, bool paste);
@@ -86,6 +87,7 @@ public:
     void setResizeDisplayData(const QSize &size);
 
     ControlMsgType type() const { return m_data.type; }
+    const QString &debugInfo() const { return m_debugInfo; }
     QByteArray serializeData();
 
 private:
@@ -169,6 +171,7 @@ private:
     };
 
     ControlMsgData m_data;
+    QString m_debugInfo;
 };
 
 #endif // CONTROLMSG_H

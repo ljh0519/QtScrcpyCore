@@ -4,6 +4,7 @@
 #include <QPointF>
 #include <QQueue>
 #include <QString>
+#include <QElapsedTimer>
 
 #include "inputconvertnormal.h"
 #include "keymap.h"
@@ -38,6 +39,8 @@ protected:
     void detachTouchID(int key);
     int getTouchID(int key);
     QString touchIDState() const;
+    QString touchActionName(AndroidMotioneventAction action) const;
+    QString logTime() const;
 
     // steer wheel
     void processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
@@ -86,6 +89,8 @@ private:
     bool m_needBackMouseMove = false;
     int m_multiTouchID[MULTI_TOUCH_MAX_NUM] = { 0 };
     KeyMap m_keyMap;
+    QElapsedTimer m_logTimer;
+    quint64 m_logSequence = 0;
 
     bool m_processMouseMove = true;
 

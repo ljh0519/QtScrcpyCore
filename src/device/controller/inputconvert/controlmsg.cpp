@@ -66,6 +66,11 @@ void ControlMsg::setInjectTouchMsgData(
     m_data.injectTouch.pressure = pressure;
 }
 
+void ControlMsg::setDebugInfo(const QString &debugInfo)
+{
+    m_debugInfo = debugInfo;
+}
+
 void ControlMsg::setInjectScrollMsgData(QRect position, float hScroll, float vScroll, AndroidMotioneventButtons buttons)
 {
     m_data.injectScroll.position = position;

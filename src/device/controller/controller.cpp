@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QClipboard>
+#include <QDateTime>
 #include <QTimer>
 
 #include "controller.h"
@@ -7,6 +8,13 @@
 #include "inputconvertgame.h"
 #include "receiver.h"
 #include "videosocket.h"
+
+namespace {
+QString controllerLogTime()
+{
+    return QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+}
+}
 
 Controller::Controller(std::function<qint64(const QByteArray&)> sendData, QString gameScript, QObject *parent)
     : QObject(parent)
@@ -23,8 +31,16 @@ Controller::~Controller() {}
 void Controller::postControlMsg(ControlMsg *controlMsg)
 {
     if (!controlMsg) {
+        qWarning().noquote() << controllerLogTime()
+                             << "[Controller] postControlMsg ignored: null message";
         return;
     }
+
+    qInfo().noquote() << controllerLogTime()
+                      << "[Controller] postControlMsg"
+                      << "msg:" << static_cast<const void *>(controlMsg)
+                      << "type:" << controlMsg->type()
+                      << "debug:" << controlMsg->debugInfo();
 
     if (m_cameraMode) {
         const auto type = controlMsg->type();
@@ -32,13 +48,22 @@ void Controller::postControlMsg(ControlMsg *controlMsg)
                 || type == ControlMsg::CMT_CAMERA_ZOOM_IN
                 || type == ControlMsg::CMT_CAMERA_ZOOM_OUT;
         if (!isCameraControl) {
-            qWarning() << "Ignoring display control message in camera mode:" << type;
+            qWarning().noquote() << controllerLogTime()
+                                 << "[Controller] postControlMsg dropped in camera mode"
+                                 << "msg:" << static_cast<const void *>(controlMsg)
+                                 << "type:" << type
+                                 << "debug:" << controlMsg->debugInfo();
             delete controlMsg;
             return;
         }
     }
 
     QCoreApplication::postEvent(this, controlMsg);
+    qInfo().noquote() << controllerLogTime()
+                      << "[Controller] postControlMsg queued"
+                      << "msg:" << static_cast<const void *>(controlMsg)
+                      << "type:" << controlMsg->type()
+                      << "debug:" << controlMsg->debugInfo();
 }
 
 void Controller::setCameraMode(bool cameraMode)
@@ -318,7 +343,23 @@ bool Controller::event(QEvent *event)
     if (event && static_cast<ControlMsg::Type>(event->type()) == ControlMsg::Control) {
         ControlMsg *controlMsg = dynamic_cast<ControlMsg *>(event);
         if (controlMsg) {
-            sendControl(controlMsg->serializeData());
+            qInfo().noquote() << controllerLogTime()
+                              << "[Controller] dispatch ControlMsg"
+                              << "msg:" << static_cast<const void *>(controlMsg)
+                              << "type:" << controlMsg->type()
+                              << "debug:" << controlMsg->debugInfo();
+            const QByteArray buffer = controlMsg->serializeData();
+            qInfo().noquote() << controllerLogTime()
+                              << "[Controller] serialized ControlMsg"
+                              << "msg:" << static_cast<const void *>(controlMsg)
+                              << "bytes:" << buffer.size()
+                              << "debug:" << controlMsg->debugInfo();
+            const bool sent = sendControl(buffer);
+            qInfo().noquote() << controllerLogTime()
+                              << "[Controller] dispatch complete"
+                              << "msg:" << static_cast<const void *>(controlMsg)
+                              << "sent:" << sent
+                              << "debug:" << controlMsg->debugInfo();
         }
         return true;
     }
@@ -328,11 +369,24 @@ bool Controller::event(QEvent *event)
 bool Controller::sendControl(const QByteArray &buffer)
 {
     if (buffer.isEmpty()) {
+        qWarning().noquote() << controllerLogTime()
+                             << "[Controller] sendControl failed: empty buffer";
         return false;
     }
     qint32 len = 0;
     if (m_sendData) {
+        qInfo().noquote() << controllerLogTime()
+                          << "[Controller] sendControl begin"
+                          << "bytes:" << buffer.size();
         len = static_cast<qint32>(m_sendData(buffer));
+        qInfo().noquote() << controllerLogTime()
+                          << "[Controller] sendControl result"
+                          << "requested:" << buffer.size()
+                          << "written:" << len
+                          << "success:" << (len == buffer.length());
+    } else {
+        qWarning().noquote() << controllerLogTime()
+                             << "[Controller] sendControl failed: no sender";
     }
     return len == buffer.length() ? true : false;
 }

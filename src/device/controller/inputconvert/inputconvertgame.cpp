@@ -1,5 +1,6 @@
 #include <QDebug>
 #include <QCursor>
+#include <QDateTime>
 #include <QGuiApplication>
 #include <QTimer>
 #include <QTime>
@@ -14,12 +15,40 @@
 #define CURSOR_POS_CHECK 50
 
 InputConvertGame::InputConvertGame(Controller *controller) : InputConvertNormal(controller) {
+    m_logTimer.start();
     m_ctrlSteerWheel.delayData.timer = new QTimer(this);
     m_ctrlSteerWheel.delayData.timer->setSingleShot(true);
     connect(m_ctrlSteerWheel.delayData.timer, &QTimer::timeout, this, &InputConvertGame::onSteerWheelTimer);
+    qInfo().noquote() << logTime() << "[InputConvertGame] constructed";
 }
 
-InputConvertGame::~InputConvertGame() {}
+InputConvertGame::~InputConvertGame()
+{
+    qInfo().noquote() << logTime()
+                      << "[InputConvertGame] destructed"
+                      << "touchIDs:" << touchIDState();
+}
+
+QString InputConvertGame::touchActionName(AndroidMotioneventAction action) const
+{
+    switch (action) {
+    case AMOTION_EVENT_ACTION_DOWN:
+        return QStringLiteral("DOWN");
+    case AMOTION_EVENT_ACTION_UP:
+        return QStringLiteral("UP");
+    case AMOTION_EVENT_ACTION_MOVE:
+        return QStringLiteral("MOVE");
+    default:
+        return QStringLiteral("ACTION_%1").arg(static_cast<int>(action));
+    }
+}
+
+QString InputConvertGame::logTime() const
+{
+    return QStringLiteral("%1 (+%2ms)")
+        .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+        .arg(m_logTimer.elapsed());
+}
 
 void InputConvertGame::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
 {
@@ -61,6 +90,20 @@ void InputConvertGame::wheelEvent(const QWheelEvent *from, const QSize &frameSiz
 
 void InputConvertGame::keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize)
 {
+    if (from) {
+        qInfo().noquote() << logTime()
+                          << "[InputKeyEvent] received"
+                          << "key:" << from->key()
+                          << "eventType:" << static_cast<int>(from->type())
+                          << "autoRepeat:" << from->isAutoRepeat()
+                          << "gameMap:" << m_gameMap
+                          << "needBackMouseMove:" << m_needBackMouseMove;
+    } else {
+        qWarning().noquote() << logTime()
+                             << "[InputKeyEvent] received null event";
+        return;
+    }
+
     // 处理开关按键
     if (m_keyMap.isSwitchOnKeyboard() && m_keyMap.getSwitchKey() == from->key()) {
         if (QEvent::KeyPress != from->type()) {
@@ -84,6 +127,11 @@ void InputConvertGame::keyEvent(const QKeyEvent *from, const QSize &frameSize, c
     if (m_gameMap) {
         updateSize(frameSize, showSize);
         if (!from || from->isAutoRepeat()) {
+            if (from && from->isAutoRepeat()) {
+                qInfo().noquote() << logTime()
+                                  << "[InputKeyEvent] ignored auto-repeat"
+                                  << "key:" << from->key();
+            }
             return;
         }
 
@@ -131,10 +179,22 @@ void InputConvertGame::keyEvent(const QKeyEvent *from, const QSize &frameSize, c
             return;
         case KeyMap::KMT_ANDROID_KEY:
             processAndroidKey(node.data.androidKey.keyNode.androidKey, from);
+            qInfo().noquote() << logTime()
+                              << "[InputKeyEvent] processed Android key mapping"
+                              << "key:" << from->key()
+                              << "androidKey:" << node.data.androidKey.keyNode.androidKey;
+            break;
         default:
+            qInfo().noquote() << logTime()
+                              << "[InputKeyEvent] no custom mapping"
+                              << "key:" << from->key()
+                              << "nodeType:" << node.type;
             break;
         }
     } else {
+        qInfo().noquote() << logTime()
+                          << "[InputKeyEvent] forwarded to normal converter"
+                          << "key:" << from->key();
         InputConvertNormal::keyEvent(from, frameSize, showSize);
     }
 }
@@ -180,35 +240,48 @@ void InputConvertGame::sendTouchUpEvent(int id, QPointF pos)
 
 void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAction action)
 {
-    qDebug() << "[TouchEvent]"
-             << "action:" << static_cast<int>(action)
-             << "id:" << id
-             << "pos:" << pos
-             << "touchIDs:" << touchIDState();
+    const quint64 sequence = ++m_logSequence;
+    const QString actionName = touchActionName(action);
+    qInfo().noquote() << logTime()
+                      << "[TouchEvent] begin"
+                      << "seq:" << sequence
+                      << "action:" << actionName
+                      << "id:" << id
+                      << "relativePos:" << pos
+                      << "frameSize:" << m_frameSize
+                      << "touchIDs:" << touchIDState();
 
     if (0 > id || MULTI_TOUCH_MAX_NUM - 1 < id) {
-        qWarning() << "[TouchEvent] dropped because touch ID is invalid:"
-                   << "action:" << static_cast<int>(action)
-                   << "id:" << id
-                   << "pos:" << pos
-                   << "touchIDs:" << touchIDState();
+        qWarning().noquote() << logTime()
+                             << "[TouchEvent] dropped: invalid touch ID"
+                             << "seq:" << sequence
+                             << "action:" << actionName
+                             << "id:" << id
+                             << "relativePos:" << pos
+                             << "touchIDs:" << touchIDState();
         Q_ASSERT(0);
         return;
     }
-    //qDebug() << "id:" << id << " pos:" << pos << " action" << action;
+
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
     if (!controlMsg) {
+        qCritical().noquote() << logTime()
+                              << "[TouchEvent] dropped: failed to allocate ControlMsg"
+                              << "seq:" << sequence;
         return;
     }
 
     QPoint absolutePos = calcFrameAbsolutePos(pos).toPoint();
     static QPoint lastAbsolutePos = absolutePos;
     if (AMOTION_EVENT_ACTION_MOVE == action && lastAbsolutePos == absolutePos) {
-        qDebug() << "[TouchEvent] MOVE dropped because absolute position is unchanged:"
-                 << "id:" << id
-                 << "pos:" << pos
-                 << "absolutePos:" << absolutePos
-                 << "touchIDs:" << touchIDState();
+        qInfo().noquote() << logTime()
+                          << "[TouchEvent] dropped: MOVE position unchanged"
+                          << "seq:" << sequence
+                          << "id:" << id
+                          << "relativePos:" << pos
+                          << "absolutePos:" << absolutePos
+                          << "lastAbsolutePos:" << lastAbsolutePos
+                          << "touchIDs:" << touchIDState();
         delete controlMsg;
         return;
     }
@@ -221,6 +294,18 @@ void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAct
         static_cast<AndroidMotioneventButtons>(0),
         QRect(absolutePos, m_frameSize),
         AMOTION_EVENT_ACTION_DOWN == action ? 1.0f : 0.0f);
+    controlMsg->setDebugInfo(QStringLiteral("touchSeq=%1 action=%2 id=%3")
+                                 .arg(sequence)
+                                 .arg(actionName)
+                                 .arg(id));
+    qInfo().noquote() << logTime()
+                      << "[TouchEvent] posting ControlMsg"
+                      << "seq:" << sequence
+                      << "action:" << actionName
+                      << "id:" << id
+                      << "absolutePos:" << absolutePos
+                      << "pressure:" << (AMOTION_EVENT_ACTION_DOWN == action ? 1.0f : 0.0f)
+                      << "touchIDs:" << touchIDState();
     sendControlMsg(controlMsg);
 }
 
@@ -231,6 +316,9 @@ void InputConvertGame::sendKeyEvent(AndroidKeyeventAction action, AndroidKeycode
     }
 
     controlMsg->setInjectKeycodeMsgData(action, keyCode, 0, AMETA_NONE);
+    controlMsg->setDebugInfo(QStringLiteral("androidKey action=%1 keyCode=%2")
+                                 .arg(static_cast<int>(action))
+                                 .arg(static_cast<int>(keyCode)));
     sendControlMsg(controlMsg);
 }
 
@@ -252,55 +340,62 @@ QPointF InputConvertGame::calcScreenAbsolutePos(QPointF relativePos)
 
 int InputConvertGame::attachTouchID(int key)
 {
-    qDebug() << "[TouchID] attach requested:"
-             << "key:" << key
-             << "existingID:" << getTouchID(key)
-             << "before:" << touchIDState();
+    qInfo().noquote() << logTime()
+                      << "[TouchID] attach requested"
+                      << "key:" << key
+                      << "existingID:" << getTouchID(key)
+                      << "before:" << touchIDState();
 
     if (getTouchID(key) != -1) {
-        qWarning() << "[TouchID] duplicate attach request:"
-                   << "key:" << key
-                   << "existingID:" << getTouchID(key)
-                   << "state:" << touchIDState();
+        qWarning().noquote() << logTime()
+                             << "[TouchID] duplicate attach request"
+                             << "key:" << key
+                             << "existingID:" << getTouchID(key)
+                             << "state:" << touchIDState();
     }
 
     for (int i = 0; i < MULTI_TOUCH_MAX_NUM; i++) {
         if (0 == m_multiTouchID[i]) {
             m_multiTouchID[i] = key;
-            qDebug() << "[TouchID] attached:"
-                     << "key:" << key
-                     << "id:" << i
-                     << "after:" << touchIDState();
+            qInfo().noquote() << logTime()
+                              << "[TouchID] attached"
+                              << "key:" << key
+                              << "id:" << i
+                              << "after:" << touchIDState();
             return i;
         }
     }
 
-    qWarning() << "[TouchID] attach failed, no free slot:"
-               << "key:" << key
-               << "state:" << touchIDState();
+    qWarning().noquote() << logTime()
+                         << "[TouchID] attach failed: no free slot"
+                         << "key:" << key
+                         << "state:" << touchIDState();
     return -1;
 }
 
 void InputConvertGame::detachTouchID(int key)
 {
-    qDebug() << "[TouchID] detach requested:"
-             << "key:" << key
-             << "before:" << touchIDState();
+    qInfo().noquote() << logTime()
+                      << "[TouchID] detach requested"
+                      << "key:" << key
+                      << "before:" << touchIDState();
 
     for (int i = 0; i < MULTI_TOUCH_MAX_NUM; i++) {
         if (key == m_multiTouchID[i]) {
             m_multiTouchID[i] = 0;
-            qDebug() << "[TouchID] detached:"
-                     << "key:" << key
-                     << "id:" << i
-                     << "after:" << touchIDState();
+            qInfo().noquote() << logTime()
+                              << "[TouchID] detached"
+                              << "key:" << key
+                              << "id:" << i
+                              << "after:" << touchIDState();
             return;
         }
     }
 
-    qWarning() << "[TouchID] detach requested for unknown key:"
-               << "key:" << key
-               << "state:" << touchIDState();
+    qWarning().noquote() << logTime()
+                         << "[TouchID] detach requested for unknown key"
+                         << "key:" << key
+                         << "state:" << touchIDState();
 }
 
 int InputConvertGame::getTouchID(int key)
@@ -355,43 +450,61 @@ void InputConvertGame::getDelayQueue(const QPointF& start, const QPointF& end,
 
     queuePos = queue;
     queueTimer = queue2;
+    qInfo().noquote() << logTime()
+                      << "[SteerWheelQueue] generated"
+                      << "start:" << start
+                      << "end:" << end
+                      << "positionCount:" << queuePos.size()
+                      << "timerCount:" << queueTimer.size()
+                      << "timerRange:" << lowestTimer << "-" << highestTimer;
 }
 
 void InputConvertGame::onSteerWheelTimer() {
     if(m_ctrlSteerWheel.delayData.queuePos.empty()) {
-        qDebug() << "[SteerWheelTimer] fired with empty position queue:"
-                 << "touchKey:" << m_ctrlSteerWheel.touchKey
-                 << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
-                 << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
-                 << "touchIDs:" << touchIDState();
+        qInfo().noquote() << logTime()
+                          << "[SteerWheelTimer] fired with empty position queue"
+                          << "touchKey:" << m_ctrlSteerWheel.touchKey
+                          << "touchID:" << getTouchID(m_ctrlSteerWheel.touchKey)
+                          << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
+                          << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
+                          << "touchIDs:" << touchIDState();
         return;
     }
 
     int id = getTouchID(m_ctrlSteerWheel.touchKey);
-    qDebug() << "[SteerWheelTimer] processing:"
-             << "touchKey:" << m_ctrlSteerWheel.touchKey
-             << "id:" << id
-             << "queuePos:" << m_ctrlSteerWheel.delayData.queuePos.size()
-             << "queueTimer:" << m_ctrlSteerWheel.delayData.queueTimer.size()
-             << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
-             << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
-             << "touchIDs:" << touchIDState();
+    qInfo().noquote() << logTime()
+                      << "[SteerWheelTimer] processing"
+                      << "touchKey:" << m_ctrlSteerWheel.touchKey
+                      << "id:" << id
+                      << "queuePos(before):" << m_ctrlSteerWheel.delayData.queuePos.size()
+                      << "queueTimer(before):" << m_ctrlSteerWheel.delayData.queueTimer.size()
+                      << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
+                      << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
+                      << "timerRemaining:" << m_ctrlSteerWheel.delayData.timer->remainingTime()
+                      << "touchIDs:" << touchIDState();
 
     m_ctrlSteerWheel.delayData.currentPos = m_ctrlSteerWheel.delayData.queuePos.dequeue();
     sendTouchMoveEvent(id, m_ctrlSteerWheel.delayData.currentPos);
 
     if(m_ctrlSteerWheel.delayData.queuePos.empty() && m_ctrlSteerWheel.delayData.pressedNum == 0) {
-        qDebug() << "[SteerWheelTimer] sending delayed UP:"
-                 << "touchKey:" << m_ctrlSteerWheel.touchKey
-                 << "id:" << id
-                 << "pos:" << m_ctrlSteerWheel.delayData.currentPos;
+        qInfo().noquote() << logTime()
+                          << "[SteerWheelTimer] sending delayed UP"
+                          << "touchKey:" << m_ctrlSteerWheel.touchKey
+                          << "id:" << id
+                          << "pos:" << m_ctrlSteerWheel.delayData.currentPos;
         sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
         detachTouchID(m_ctrlSteerWheel.touchKey);
         return;
     }
 
     if(!m_ctrlSteerWheel.delayData.queuePos.empty()) {
-        m_ctrlSteerWheel.delayData.timer->start(m_ctrlSteerWheel.delayData.queueTimer.dequeue());
+        const quint32 delay = m_ctrlSteerWheel.delayData.queueTimer.dequeue();
+        qInfo().noquote() << logTime()
+                          << "[SteerWheelTimer] scheduling next MOVE"
+                          << "delayMs:" << delay
+                          << "queuePos(after):" << m_ctrlSteerWheel.delayData.queuePos.size()
+                          << "queueTimer(after):" << m_ctrlSteerWheel.delayData.queueTimer.size();
+        m_ctrlSteerWheel.delayData.timer->start(delay);
     }
 }
 
@@ -399,19 +512,23 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
 {
     int key = from->key();
     bool flag = from->type() == QEvent::KeyPress;
+    const quint64 sequence = ++m_logSequence;
 
-    qInfo() << "[SteerWheel] key event:"
-            << "key:" << key
-            << "eventType:" << static_cast<int>(from->type())
-            << "isPress:" << flag
-            << "touchKey(before):" << m_ctrlSteerWheel.touchKey
-            << "touchID(before):" << getTouchID(m_ctrlSteerWheel.touchKey)
-            << "pressedState(before):"
-            << "U:" << m_ctrlSteerWheel.pressedUp
-            << "R:" << m_ctrlSteerWheel.pressedRight
-            << "D:" << m_ctrlSteerWheel.pressedDown
-            << "L:" << m_ctrlSteerWheel.pressedLeft
-            << "touchIDs:" << touchIDState();
+    qInfo().noquote() << logTime()
+                      << "[SteerWheel] key event"
+                      << "seq:" << sequence
+                      << "key:" << key
+                      << "eventType:" << static_cast<int>(from->type())
+                      << "isPress:" << flag
+                      << "autoRepeat:" << from->isAutoRepeat()
+                      << "touchKey(before):" << m_ctrlSteerWheel.touchKey
+                      << "touchID(before):" << getTouchID(m_ctrlSteerWheel.touchKey)
+                      << "pressedState(before):"
+                      << "U:" << m_ctrlSteerWheel.pressedUp
+                      << "R:" << m_ctrlSteerWheel.pressedRight
+                      << "D:" << m_ctrlSteerWheel.pressedDown
+                      << "L:" << m_ctrlSteerWheel.pressedLeft
+                      << "touchIDs:" << touchIDState();
 
     // identify keys
     if (key == node.data.steerWheel.up.key) {
@@ -445,13 +562,15 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     }
     m_ctrlSteerWheel.delayData.pressedNum = pressedNum;
 
-    qInfo() << "[SteerWheel] calculated state:"
-            << "key:" << key
-            << "pressedNum:" << pressedNum
-            << "offset:" << offset
-            << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
-            << "queuePos(before clear):" << m_ctrlSteerWheel.delayData.queuePos.size()
-            << "queueTimer(before clear):" << m_ctrlSteerWheel.delayData.queueTimer.size();
+    qInfo().noquote() << logTime()
+                      << "[SteerWheel] calculated state"
+                      << "seq:" << sequence
+                      << "key:" << key
+                      << "pressedNum:" << pressedNum
+                      << "offset:" << offset
+                      << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
+                      << "queuePos(before clear):" << m_ctrlSteerWheel.delayData.queuePos.size()
+                      << "queueTimer(before clear):" << m_ctrlSteerWheel.delayData.queueTimer.size();
 
     // last key release and timer no active, active timer to detouch
     if (pressedNum == 0) {
@@ -462,11 +581,13 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
         }
 
         int id = getTouchID(m_ctrlSteerWheel.touchKey);
-        qInfo() << "[SteerWheel] all direction keys released:"
-                << "touchKey:" << m_ctrlSteerWheel.touchKey
-                << "id:" << id
-                << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
-                << "touchIDs:" << touchIDState();
+        qInfo().noquote() << logTime()
+                          << "[SteerWheel] all direction keys released"
+                          << "seq:" << sequence
+                          << "touchKey:" << m_ctrlSteerWheel.touchKey
+                          << "id:" << id
+                          << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos
+                          << "touchIDs:" << touchIDState();
         sendTouchUpEvent(id, m_ctrlSteerWheel.delayData.currentPos);
         detachTouchID(m_ctrlSteerWheel.touchKey);
         return;
@@ -481,11 +602,13 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     if (pressedNum == 1 && flag) {
         m_ctrlSteerWheel.touchKey = from->key();
         int id = attachTouchID(m_ctrlSteerWheel.touchKey);
-        qInfo() << "[SteerWheel] first direction pressed, sending DOWN:"
-                << "touchKey:" << m_ctrlSteerWheel.touchKey
-                << "id:" << id
-                << "centerPos:" << node.data.steerWheel.centerPos
-                << "touchIDs:" << touchIDState();
+        qInfo().noquote() << logTime()
+                          << "[SteerWheel] first direction pressed, sending DOWN"
+                          << "seq:" << sequence
+                          << "touchKey:" << m_ctrlSteerWheel.touchKey
+                          << "id:" << id
+                          << "centerPos:" << node.data.steerWheel.centerPos
+                          << "touchIDs:" << touchIDState();
         sendTouchDownEvent(id, node.data.steerWheel.centerPos);
 
         getDelayQueue(node.data.steerWheel.centerPos, node.data.steerWheel.centerPos+offset,
@@ -493,24 +616,28 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
                       m_ctrlSteerWheel.delayData.queuePos,
                       m_ctrlSteerWheel.delayData.queueTimer);
     } else {
-        qDebug() << "[SteerWheel] direction changed while active:"
-                 << "touchKey:" << m_ctrlSteerWheel.touchKey
-                 << "id:" << getTouchID(m_ctrlSteerWheel.touchKey)
-                 << "targetPos:" << node.data.steerWheel.centerPos + offset
-                 << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos;
+        qInfo().noquote() << logTime()
+                          << "[SteerWheel] direction changed while active"
+                          << "seq:" << sequence
+                          << "touchKey:" << m_ctrlSteerWheel.touchKey
+                          << "id:" << getTouchID(m_ctrlSteerWheel.touchKey)
+                          << "targetPos:" << node.data.steerWheel.centerPos + offset
+                          << "currentPos:" << m_ctrlSteerWheel.delayData.currentPos;
         getDelayQueue(m_ctrlSteerWheel.delayData.currentPos, node.data.steerWheel.centerPos+offset,
                       0.01f, 0.002f, 2, 8,
                       m_ctrlSteerWheel.delayData.queuePos,
                       m_ctrlSteerWheel.delayData.queueTimer);
     }
 
-    qDebug() << "[SteerWheel] timer started:"
-             << "touchKey:" << m_ctrlSteerWheel.touchKey
-             << "id:" << getTouchID(m_ctrlSteerWheel.touchKey)
-             << "queuePos:" << m_ctrlSteerWheel.delayData.queuePos.size()
-             << "queueTimer:" << m_ctrlSteerWheel.delayData.queueTimer.size()
-             << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
-             << "touchIDs:" << touchIDState();
+    qInfo().noquote() << logTime()
+                      << "[SteerWheel] timer started"
+                      << "seq:" << sequence
+                      << "touchKey:" << m_ctrlSteerWheel.touchKey
+                      << "id:" << getTouchID(m_ctrlSteerWheel.touchKey)
+                      << "queuePos:" << m_ctrlSteerWheel.delayData.queuePos.size()
+                      << "queueTimer:" << m_ctrlSteerWheel.delayData.queueTimer.size()
+                      << "pressedNum:" << m_ctrlSteerWheel.delayData.pressedNum
+                      << "touchIDs:" << touchIDState();
     m_ctrlSteerWheel.delayData.timer->start();
     return;
 }
@@ -808,6 +935,12 @@ void InputConvertGame::mouseMoveStartTouch(const QMouseEvent *from)
         QPointF mouseMoveStartPos
             = m_ctrlMouseMove.smallEyes ? m_keyMap.getMouseMoveMap().data.mouseMove.smallEyes.pos : m_keyMap.getMouseMoveMap().data.mouseMove.startPos;
         int id = attachTouchID(Qt::ExtraButton24);
+        qInfo().noquote() << logTime()
+                          << "[MouseMove] sending DOWN"
+                          << "id:" << id
+                          << "startPos:" << mouseMoveStartPos
+                          << "smallEyes:" << m_ctrlMouseMove.smallEyes
+                          << "touchIDs:" << touchIDState();
         sendTouchDownEvent(id, mouseMoveStartPos);
         m_ctrlMouseMove.lastConverPos = mouseMoveStartPos;
         m_ctrlMouseMove.touching = true;
@@ -817,7 +950,13 @@ void InputConvertGame::mouseMoveStartTouch(const QMouseEvent *from)
 void InputConvertGame::mouseMoveStopTouch()
 {
     if (m_ctrlMouseMove.touching) {
-        sendTouchUpEvent(getTouchID(Qt::ExtraButton24), m_ctrlMouseMove.lastConverPos);
+        int id = getTouchID(Qt::ExtraButton24);
+        qInfo().noquote() << logTime()
+                          << "[MouseMove] sending UP"
+                          << "id:" << id
+                          << "pos:" << m_ctrlMouseMove.lastConverPos
+                          << "touchIDs:" << touchIDState();
+        sendTouchUpEvent(id, m_ctrlMouseMove.lastConverPos);
         detachTouchID(Qt::ExtraButton24);
         m_ctrlMouseMove.touching = false;
     }

@@ -1,4 +1,5 @@
 #include <QDir>
+#include <QDateTime>
 #include <QMessageBox>
 #include <QTimer>
 
@@ -71,10 +72,27 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
         m_fileHandler = new FileHandler(this);
         m_controller = new Controller([this](const QByteArray& buffer) -> qint64 {
             if (!m_server || !m_server->getControlSocket()) {
+                qWarning().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                                     << "[DeviceControlSocket] write skipped: socket unavailable"
+                                     << "bytes:" << buffer.size();
                 return 0;
             }
 
-            return m_server->getControlSocket()->write(buffer.data(), buffer.length());
+            auto *socket = m_server->getControlSocket();
+            qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                              << "[DeviceControlSocket] write begin"
+                              << "socket:" << static_cast<const void *>(socket)
+                              << "state:" << socket->state()
+                              << "bytes:" << buffer.size()
+                              << "bytesToWrite(before):" << socket->bytesToWrite();
+            const qint64 written = socket->write(buffer.data(), buffer.length());
+            qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                              << "[DeviceControlSocket] write result"
+                              << "requested:" << buffer.size()
+                              << "written:" << written
+                              << "bytesToWrite(after):" << socket->bytesToWrite()
+                              << "error:" << socket->errorString();
+            return written;
         }, m_params.gameScript, this);
         m_controller->setCameraMode(isCameraMode());
     }
