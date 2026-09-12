@@ -235,6 +235,18 @@ void KeyMap::loadKeyMap(const QString &json)
                 QPair<ActionType, int> rightKey = getItemKey(node, "rightKey");
                 QPair<ActionType, int> upKey = getItemKey(node, "upKey");
                 QPair<ActionType, int> downKey = getItemKey(node, "downKey");
+                QPair<ActionType, int> sprintKey = { AT_INVALID, -1 };
+                if (node.contains("sprintKey")) {
+                    if (!checkItemString(node, "sprintKey")) {
+                        qWarning() << "json error: keyMapNodes steer wheel sprintKey must be a string";
+                        break;
+                    }
+                    sprintKey = getItemKey(node, "sprintKey");
+                    if (sprintKey.first == AT_INVALID) {
+                        qWarning() << "json error: keyMapNodes node invalid sprintKey: " << node.value("sprintKey").toString();
+                        break;
+                    }
+                }
                 if (leftKey.first == AT_INVALID || rightKey.first == AT_INVALID || upKey.first == AT_INVALID || downKey.first == AT_INVALID) {
                     if (leftKey.first == AT_INVALID) {
                         qWarning() << "json error: keyMapNodes node invalid key: " << node.value("leftKey").toString();
@@ -258,6 +270,7 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.steerWheel.right = { rightKey.first, rightKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "rightOffset") };
                 keyMapNode.data.steerWheel.up = { upKey.first, upKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "upOffset") };
                 keyMapNode.data.steerWheel.down = { downKey.first, downKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "downOffset") };
+                keyMapNode.data.steerWheel.sprint = { sprintKey.first, sprintKey.second };
 
                 keyMapNode.data.steerWheel.centerPos = getItemPos(node, "centerPos");
                 m_idxSteerWheel = m_keyMapNodes.size();
@@ -397,6 +410,10 @@ void KeyMap::makeReverseMap()
             mu.insert(node.data.steerWheel.up.key, &node);
             QMultiHash<int, KeyMapNode *> &md = node.data.steerWheel.down.type == AT_KEY ? m_rmapKey : m_rmapMouse;
             md.insert(node.data.steerWheel.down.key, &node);
+            if (node.data.steerWheel.sprint.type != AT_INVALID) {
+                QMultiHash<int, KeyMapNode *> &ms = node.data.steerWheel.sprint.type == AT_KEY ? m_rmapKey : m_rmapMouse;
+                ms.insert(node.data.steerWheel.sprint.key, &node);
+            }
         } break;
         case KMT_DRAG: {
             QMultiHash<int, KeyMapNode *> &m = node.data.drag.keyNode.type == AT_KEY ? m_rmapKey : m_rmapMouse;

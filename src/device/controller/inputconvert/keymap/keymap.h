@@ -88,7 +88,7 @@ public:
             struct
             {
                 QPointF centerPos = { 0.0, 0.0 };
-                KeyNode left, right, up, down;
+                KeyNode left, right, up, down, sprint;
             } steerWheel;
             struct
             {

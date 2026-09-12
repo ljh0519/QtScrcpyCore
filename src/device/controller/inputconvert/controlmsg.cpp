@@ -71,6 +71,15 @@ void ControlMsg::setDebugInfo(const QString &debugInfo)
     m_debugInfo = debugInfo;
 }
 
+void ControlMsg::setDebugTrace(quint64 sequence, quint64 gestureSequence, int action, int id)
+{
+    m_debugTrace.enabled = true;
+    m_debugTrace.sequence = sequence;
+    m_debugTrace.gestureSequence = gestureSequence;
+    m_debugTrace.action = action;
+    m_debugTrace.id = id;
+}
+
 void ControlMsg::setInjectScrollMsgData(QRect position, float hScroll, float vScroll, AndroidMotioneventButtons buttons)
 {
     m_data.injectScroll.position = position;

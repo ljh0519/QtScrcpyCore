@@ -76,6 +76,7 @@ public:
         QRect position,
         float pressure);
     void setDebugInfo(const QString &debugInfo);
+    void setDebugTrace(quint64 sequence, quint64 gestureSequence, int action, int id);
     void setInjectScrollMsgData(QRect position, float hScroll, float vScroll, AndroidMotioneventButtons buttons);
     void setGetClipboardMsgData(ControlMsg::GetClipboardCopyKey copyKey); 
     void setSetClipboardMsgData(QString &text, bool paste);
@@ -88,6 +89,11 @@ public:
 
     ControlMsgType type() const { return m_data.type; }
     const QString &debugInfo() const { return m_debugInfo; }
+    bool hasDebugTrace() const { return m_debugTrace.enabled; }
+    quint64 debugSequence() const { return m_debugTrace.sequence; }
+    quint64 debugGestureSequence() const { return m_debugTrace.gestureSequence; }
+    int debugAction() const { return m_debugTrace.action; }
+    int debugId() const { return m_debugTrace.id; }
     QByteArray serializeData();
 
 private:
@@ -172,6 +178,14 @@ private:
 
     ControlMsgData m_data;
     QString m_debugInfo;
+    struct DebugTrace
+    {
+        bool enabled = false;
+        quint64 sequence = 0;
+        quint64 gestureSequence = 0;
+        int action = -1;
+        int id = -1;
+    } m_debugTrace;
 };
 
 #endif // CONTROLMSG_H

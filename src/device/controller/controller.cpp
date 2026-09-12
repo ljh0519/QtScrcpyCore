@@ -20,6 +20,7 @@ Controller::Controller(std::function<qint64(const QByteArray&)> sendData, QStrin
     : QObject(parent)
     , m_sendData(sendData)
 {
+    m_controlTraceTimer.start();
     m_receiver = new Receiver(this);
     Q_ASSERT(m_receiver);
 
@@ -27,6 +28,86 @@ Controller::Controller(std::function<qint64(const QByteArray&)> sendData, QStrin
 }
 
 Controller::~Controller() {}
+
+QString Controller::controlTraceStageName(int stage) const
+{
+    switch (stage) {
+    case CTS_POST:
+        return QStringLiteral("post");
+    case CTS_QUEUED:
+        return QStringLiteral("queued");
+    case CTS_DISPATCH:
+        return QStringLiteral("dispatch");
+    case CTS_SERIALIZED:
+        return QStringLiteral("serialized");
+    case CTS_SEND_BEGIN:
+        return QStringLiteral("send-begin");
+    case CTS_SEND_RESULT:
+        return QStringLiteral("send-result");
+    default:
+        return QStringLiteral("stage-%1").arg(stage);
+    }
+}
+
+void Controller::recordControlTrace(const ControlMsg *controlMsg, int stage,
+                                    int bytes, qint64 written, bool success)
+{
+    if (!controlMsg || !controlMsg->hasDebugTrace()) {
+        return;
+    }
+
+    ControlTraceEntry &entry = m_controlTrace[m_controlTraceNext];
+    entry.elapsedMs = m_controlTraceTimer.elapsed();
+    entry.sequence = controlMsg->debugSequence();
+    entry.gestureSequence = controlMsg->debugGestureSequence();
+    entry.stage = stage;
+    entry.action = controlMsg->debugAction();
+    entry.id = controlMsg->debugId();
+    entry.bytes = bytes;
+    entry.written = written;
+    entry.success = success;
+    m_controlTraceNext = (m_controlTraceNext + 1) % CONTROL_TRACE_CAPACITY;
+    m_controlTraceSize = qMin(m_controlTraceSize + 1, CONTROL_TRACE_CAPACITY);
+}
+
+void Controller::dumpControlTrace(quint64 gestureSequence, const QString &reason)
+{
+    const qint64 nowElapsed = m_controlTraceTimer.elapsed();
+    const QDateTime now = QDateTime::currentDateTime();
+    const int first = (m_controlTraceNext - m_controlTraceSize + CONTROL_TRACE_CAPACITY)
+        % CONTROL_TRACE_CAPACITY;
+    int matchingEntries = 0;
+
+    qWarning().noquote() << controllerLogTime()
+                         << "[ControlTrace] begin"
+                         << "reason:" << reason
+                         << "gesture:" << gestureSequence
+                         << "entries:" << m_controlTraceSize;
+
+    for (int i = 0; i < m_controlTraceSize; ++i) {
+        const ControlTraceEntry &entry = m_controlTrace[(first + i) % CONTROL_TRACE_CAPACITY];
+        if (gestureSequence != 0 && entry.gestureSequence != gestureSequence) {
+            continue;
+        }
+        ++matchingEntries;
+        const QDateTime eventTime = now.addMSecs(entry.elapsedMs - nowElapsed);
+        qWarning().noquote() << eventTime.toString(Qt::ISODateWithMs)
+                             << "[ControlTrace]"
+                             << "elapsedMs:" << entry.elapsedMs
+                             << "stage:" << controlTraceStageName(entry.stage)
+                             << "seq:" << entry.sequence
+                             << "gesture:" << entry.gestureSequence
+                             << "action:" << entry.action
+                             << "id:" << entry.id
+                             << "bytes:" << entry.bytes
+                             << "written:" << entry.written
+                             << "success:" << entry.success;
+    }
+
+    qWarning().noquote() << controllerLogTime()
+                         << "[ControlTrace] end"
+                         << "matchedEntries:" << matchingEntries;
+}
 
 void Controller::postControlMsg(ControlMsg *controlMsg)
 {
@@ -36,11 +117,7 @@ void Controller::postControlMsg(ControlMsg *controlMsg)
         return;
     }
 
-    qInfo().noquote() << controllerLogTime()
-                      << "[Controller] postControlMsg"
-                      << "msg:" << static_cast<const void *>(controlMsg)
-                      << "type:" << controlMsg->type()
-                      << "debug:" << controlMsg->debugInfo();
+    recordControlTrace(controlMsg, CTS_POST);
 
     if (m_cameraMode) {
         const auto type = controlMsg->type();
@@ -52,18 +129,14 @@ void Controller::postControlMsg(ControlMsg *controlMsg)
                                  << "[Controller] postControlMsg dropped in camera mode"
                                  << "msg:" << static_cast<const void *>(controlMsg)
                                  << "type:" << type
-                                 << "debug:" << controlMsg->debugInfo();
+                                 << "traceSeq:" << controlMsg->debugSequence();
             delete controlMsg;
             return;
         }
     }
 
     QCoreApplication::postEvent(this, controlMsg);
-    qInfo().noquote() << controllerLogTime()
-                      << "[Controller] postControlMsg queued"
-                      << "msg:" << static_cast<const void *>(controlMsg)
-                      << "type:" << controlMsg->type()
-                      << "debug:" << controlMsg->debugInfo();
+    recordControlTrace(controlMsg, CTS_QUEUED);
 }
 
 void Controller::setCameraMode(bool cameraMode)
@@ -343,30 +416,17 @@ bool Controller::event(QEvent *event)
     if (event && static_cast<ControlMsg::Type>(event->type()) == ControlMsg::Control) {
         ControlMsg *controlMsg = dynamic_cast<ControlMsg *>(event);
         if (controlMsg) {
-            qInfo().noquote() << controllerLogTime()
-                              << "[Controller] dispatch ControlMsg"
-                              << "msg:" << static_cast<const void *>(controlMsg)
-                              << "type:" << controlMsg->type()
-                              << "debug:" << controlMsg->debugInfo();
+            recordControlTrace(controlMsg, CTS_DISPATCH);
             const QByteArray buffer = controlMsg->serializeData();
-            qInfo().noquote() << controllerLogTime()
-                              << "[Controller] serialized ControlMsg"
-                              << "msg:" << static_cast<const void *>(controlMsg)
-                              << "bytes:" << buffer.size()
-                              << "debug:" << controlMsg->debugInfo();
-            const bool sent = sendControl(buffer);
-            qInfo().noquote() << controllerLogTime()
-                              << "[Controller] dispatch complete"
-                              << "msg:" << static_cast<const void *>(controlMsg)
-                              << "sent:" << sent
-                              << "debug:" << controlMsg->debugInfo();
+            recordControlTrace(controlMsg, CTS_SERIALIZED, buffer.size());
+            sendControl(buffer, controlMsg);
         }
         return true;
     }
     return QObject::event(event);
 }
 
-bool Controller::sendControl(const QByteArray &buffer)
+bool Controller::sendControl(const QByteArray &buffer, ControlMsg *controlMsg)
 {
     if (buffer.isEmpty()) {
         qWarning().noquote() << controllerLogTime()
@@ -375,15 +435,9 @@ bool Controller::sendControl(const QByteArray &buffer)
     }
     qint32 len = 0;
     if (m_sendData) {
-        qInfo().noquote() << controllerLogTime()
-                          << "[Controller] sendControl begin"
-                          << "bytes:" << buffer.size();
+        recordControlTrace(controlMsg, CTS_SEND_BEGIN, buffer.size());
         len = static_cast<qint32>(m_sendData(buffer));
-        qInfo().noquote() << controllerLogTime()
-                          << "[Controller] sendControl result"
-                          << "requested:" << buffer.size()
-                          << "written:" << len
-                          << "success:" << (len == buffer.length());
+        recordControlTrace(controlMsg, CTS_SEND_RESULT, buffer.size(), len, len == buffer.length());
     } else {
         qWarning().noquote() << controllerLogTime()
                              << "[Controller] sendControl failed: no sender";

@@ -79,19 +79,17 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
             }
 
             auto *socket = m_server->getControlSocket();
-            qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-                              << "[DeviceControlSocket] write begin"
-                              << "socket:" << static_cast<const void *>(socket)
-                              << "state:" << socket->state()
-                              << "bytes:" << buffer.size()
-                              << "bytesToWrite(before):" << socket->bytesToWrite();
             const qint64 written = socket->write(buffer.data(), buffer.length());
-            qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-                              << "[DeviceControlSocket] write result"
-                              << "requested:" << buffer.size()
-                              << "written:" << written
-                              << "bytesToWrite(after):" << socket->bytesToWrite()
-                              << "error:" << socket->errorString();
+            if (written != buffer.length()) {
+                qWarning().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+                                     << "[DeviceControlSocket] partial write"
+                                     << "socket:" << static_cast<const void *>(socket)
+                                     << "state:" << socket->state()
+                                     << "requested:" << buffer.size()
+                                     << "written:" << written
+                                     << "bytesToWrite:" << socket->bytesToWrite()
+                                     << "error:" << socket->errorString();
+            }
             return written;
         }, m_params.gameScript, this);
         m_controller->setCameraMode(isCameraMode());

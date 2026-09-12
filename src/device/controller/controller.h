@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QSize>
+#include <QElapsedTimer>
+#include <array>
 
 #include "inputconvertbase.h"
 
@@ -61,6 +63,7 @@ public:
     void setDeviceClipboard(bool pause = true);
     void clipboardPaste();
     void postTextInput(QString &text);
+    void dumpControlTrace(quint64 gestureSequence, const QString &reason);
 
 signals:
     void grabCursor(bool grab);
@@ -69,9 +72,36 @@ protected:
     bool event(QEvent *event);
 
 private:
-    bool sendControl(const QByteArray &buffer);
+    bool sendControl(const QByteArray &buffer, ControlMsg *controlMsg = nullptr);
     void postKeyCodeClick(AndroidKeycode keycode);
     void sendPendingResize();
+    void recordControlTrace(const ControlMsg *controlMsg, int stage, int bytes = -1, qint64 written = -1, bool success = false);
+    QString controlTraceStageName(int stage) const;
+
+    enum ControlTraceStage
+    {
+        CTS_POST = 0,
+        CTS_QUEUED,
+        CTS_DISPATCH,
+        CTS_SERIALIZED,
+        CTS_SEND_BEGIN,
+        CTS_SEND_RESULT
+    };
+
+    struct ControlTraceEntry
+    {
+        qint64 elapsedMs = 0;
+        quint64 sequence = 0;
+        quint64 gestureSequence = 0;
+        int stage = CTS_POST;
+        int action = -1;
+        int id = -1;
+        int bytes = -1;
+        qint64 written = -1;
+        bool success = false;
+    };
+
+    static constexpr int CONTROL_TRACE_CAPACITY = 512;
 
 private:
     QPointer<Receiver> m_receiver;
@@ -80,6 +110,10 @@ private:
     QSize m_pendingResize;
     bool m_resizeQueued = false;
     bool m_cameraMode = false;
+    QElapsedTimer m_controlTraceTimer;
+    std::array<ControlTraceEntry, CONTROL_TRACE_CAPACITY> m_controlTrace {};
+    int m_controlTraceNext = 0;
+    int m_controlTraceSize = 0;
 };
 
 #endif // CONTROLLER_H

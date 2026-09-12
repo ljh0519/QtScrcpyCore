@@ -5,6 +5,8 @@
 #include <QQueue>
 #include <QString>
 #include <QElapsedTimer>
+#include <QPoint>
+#include <array>
 
 #include "inputconvertnormal.h"
 #include "keymap.h"
@@ -41,6 +43,13 @@ protected:
     QString touchIDState() const;
     QString touchActionName(AndroidMotioneventAction action) const;
     QString logTime() const;
+    void recordTrace(int stage, quint64 sequence = 0, quint64 gestureSequence = 0,
+                     int key = 0, int id = -1, int action = -1,
+                     const QPointF &pos = QPointF(), const QPoint &absolutePos = QPoint(),
+                     int pressedNum = -1, int queuePos = -1, int queueTimer = -1);
+    void dumpTrace(const QString &reason);
+    QString traceStageName(int stage) const;
+    void logSteerWheelSummary(const QString &reason, int id);
 
     // steer wheel
     void processSteerWheel(const KeyMap::KeyMapNode &node, const QKeyEvent *from);
@@ -91,6 +100,41 @@ private:
     KeyMap m_keyMap;
     QElapsedTimer m_logTimer;
     quint64 m_logSequence = 0;
+    bool m_dumpTraceOnGestureEnd = false;
+
+    enum TraceStage
+    {
+        ITS_INPUT_KEY = 0,
+        ITS_WHEEL_STATE,
+        ITS_QUEUE_GENERATED,
+        ITS_TIMER,
+        ITS_TOUCH_BEGIN,
+        ITS_TOUCH_POST,
+        ITS_TOUCH_DROP,
+        ITS_TOUCH_ID_ATTACH,
+        ITS_TOUCH_ID_DETACH
+    };
+
+    struct TraceEntry
+    {
+        qint64 elapsedMs = 0;
+        quint64 sequence = 0;
+        quint64 gestureSequence = 0;
+        int stage = ITS_INPUT_KEY;
+        int key = 0;
+        int id = -1;
+        int action = -1;
+        QPointF pos;
+        QPoint absolutePos;
+        int pressedNum = -1;
+        int queuePos = -1;
+        int queueTimer = -1;
+    };
+
+    static constexpr int TRACE_CAPACITY = 512;
+    std::array<TraceEntry, TRACE_CAPACITY> m_trace {};
+    int m_traceNext = 0;
+    int m_traceSize = 0;
 
     bool m_processMouseMove = true;
 
@@ -103,6 +147,7 @@ private:
         bool pressedDown = false;
         bool pressedLeft = false;
         bool pressedRight = false;
+        bool pressedSprint = false;
 
         // for delay
         struct {
@@ -111,6 +156,11 @@ private:
             QQueue<QPointF> queuePos;
             QQueue<quint32> queueTimer;
             int pressedNum = 0;
+            quint64 traceSequence = 0;
+            qint64 downTimeMs = -1;
+            qint64 firstMoveTimeMs = -1;
+            qint64 upTimeMs = -1;
+            int moveCount = 0;
         } delayData;
     } m_ctrlSteerWheel;
 
