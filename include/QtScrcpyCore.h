@@ -147,6 +147,7 @@ public:
 
     virtual void updateScript(QString script) = 0;
     virtual bool isCurrentCustomKeymap() = 0;
+    virtual void setVideoWindowFocused(bool focused) = 0;
 };
 
 class IDeviceManage : public QObject {

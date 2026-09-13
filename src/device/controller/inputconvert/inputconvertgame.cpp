@@ -1036,13 +1036,117 @@ bool InputConvertGame::switchGameMap()
 void InputConvertGame::hideMouseCursor(bool hide)
 {
     if (hide) {
+        if (m_cursorHiddenByKeymap) {
+            return;
+        }
 #ifdef QT_NO_DEBUG
         QGuiApplication::setOverrideCursor(QCursor(Qt::BlankCursor));
 #else
         QGuiApplication::setOverrideCursor(QCursor(Qt::CrossCursor));
 #endif
+        m_cursorHiddenByKeymap = true;
     } else {
+        if (!m_cursorHiddenByKeymap) {
+            return;
+        }
         QGuiApplication::restoreOverrideCursor();
+        m_cursorHiddenByKeymap = false;
+    }
+}
+
+void InputConvertGame::resetStuckTouches()
+{
+    stopMouseMoveTimer();
+    mouseMoveStopTouch();
+
+    if (m_ctrlSteerWheel.delayData.timer && m_ctrlSteerWheel.delayData.timer->isActive()) {
+        m_ctrlSteerWheel.delayData.timer->stop();
+    }
+    m_ctrlSteerWheel.delayData.queuePos.clear();
+    m_ctrlSteerWheel.delayData.queueTimer.clear();
+
+    if (m_ctrlSteerWheel.touchKey != Qt::Key_unknown) {
+        int id = getTouchID(m_ctrlSteerWheel.touchKey);
+        if (id >= 0) {
+            QPointF upPos = m_ctrlSteerWheel.delayData.currentPos;
+            if (upPos.isNull()) {
+                upPos = QPointF(0.5, 0.5);
+            }
+            sendTouchUpEvent(id, upPos);
+            detachTouchID(m_ctrlSteerWheel.touchKey);
+        }
+        m_ctrlSteerWheel.touchKey = Qt::Key_unknown;
+    }
+    m_ctrlSteerWheel.pressedUp = false;
+    m_ctrlSteerWheel.pressedDown = false;
+    m_ctrlSteerWheel.pressedLeft = false;
+    m_ctrlSteerWheel.pressedRight = false;
+    m_ctrlSteerWheel.pressedSprint = false;
+    m_ctrlSteerWheel.delayData.pressedNum = 0;
+    m_ctrlSteerWheel.delayData.currentPos = QPointF();
+
+    if (m_dragDelayData.timer) {
+        m_dragDelayData.timer->stop();
+        delete m_dragDelayData.timer;
+        m_dragDelayData.timer = nullptr;
+    }
+    m_dragDelayData.queuePos.clear();
+    m_dragDelayData.queueTimer.clear();
+    if (m_dragDelayData.pressKey) {
+        int id = getTouchID(m_dragDelayData.pressKey);
+        if (id >= 0) {
+            QPointF upPos = m_dragDelayData.currentPos;
+            if (upPos.isNull()) {
+                upPos = QPointF(0.5, 0.5);
+            }
+            sendTouchUpEvent(id, upPos);
+            detachTouchID(m_dragDelayData.pressKey);
+        }
+        m_dragDelayData.pressKey = 0;
+        m_dragDelayData.currentPos = QPointF();
+    }
+
+    for (int i = 0; i < MULTI_TOUCH_MAX_NUM; ++i) {
+        if (0 == m_multiTouchID[i]) {
+            continue;
+        }
+        sendTouchUpEvent(i, QPointF(0.5, 0.5));
+        m_multiTouchID[i] = 0;
+    }
+
+    m_ctrlMouseMove.ignoreCount = 0;
+    m_ctrlMouseMove.lastPos = QPointF(0.0, 0.0);
+    m_ctrlMouseMove.smallEyes = false;
+    m_processMouseMove = true;
+}
+
+void InputConvertGame::setVideoWindowFocused(bool focused)
+{
+    if (!m_gameMap) {
+        return;
+    }
+
+    if (!focused) {
+        // Focus loss often drops KeyRelease events and leaves virtual fingers held down.
+        // Also ClipCursor is typically cleared by the OS; release our grab state explicitly.
+        if (m_keyMap.isValidMouseMoveMap()) {
+#ifdef QT_NO_DEBUG
+            emit grabCursor(false);
+#endif
+            if (!m_needBackMouseMove) {
+                hideMouseCursor(false);
+            }
+        }
+        resetStuckTouches();
+        return;
+    }
+
+    // Returning to the window: restore cursor capture so mouse-look works again.
+    if (m_keyMap.isValidMouseMoveMap() && !m_needBackMouseMove) {
+#ifdef QT_NO_DEBUG
+        emit grabCursor(true);
+#endif
+        hideMouseCursor(true);
     }
 }
 

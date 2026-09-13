@@ -81,6 +81,7 @@ public:
 
     void updateScript(QString script) override;
     bool isCurrentCustomKeymap() override;
+    void setVideoWindowFocused(bool focused) override;
 
 private:
     void initSignals();

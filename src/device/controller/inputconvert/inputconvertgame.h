@@ -23,6 +23,7 @@ public:
     virtual void wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize);
     virtual void keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize);
     virtual bool isCurrentCustomKeymap();
+    virtual void setVideoWindowFocused(bool focused);
 
     void loadKeyMap(const QString &json);
 
@@ -78,6 +79,7 @@ protected:
     bool switchGameMap();
     bool checkCursorPos(const QMouseEvent *from);
     void hideMouseCursor(bool hide);
+    void resetStuckTouches();
 
     void getDelayQueue(const QPointF& start, const QPointF& end,
                        const double& distanceStep, const double& posStepconst,
@@ -96,6 +98,7 @@ private:
     QSize m_showSize;
     bool m_gameMap = false;
     bool m_needBackMouseMove = false;
+    bool m_cursorHiddenByKeymap = false;
     int m_multiTouchID[MULTI_TOUCH_MAX_NUM] = { 0 };
     KeyMap m_keyMap;
     QElapsedTimer m_logTimer;

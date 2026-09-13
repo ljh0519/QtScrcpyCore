@@ -25,6 +25,12 @@ public:
     {
         return false;
     }
+    // Called when the mirroring window gains/loses OS focus.
+    // Game keymap must release stuck touches on focus loss and re-grab the cursor on focus gain.
+    virtual void setVideoWindowFocused(bool focused)
+    {
+        Q_UNUSED(focused);
+    }
 
 signals:
     void grabCursor(bool grab);

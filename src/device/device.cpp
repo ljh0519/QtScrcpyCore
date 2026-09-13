@@ -866,6 +866,14 @@ bool Device::isCurrentCustomKeymap()
     return m_controller->isCurrentCustomKeymap();
 }
 
+void Device::setVideoWindowFocused(bool focused)
+{
+    if (isCameraMode() || !m_controller) {
+        return;
+    }
+    m_controller->setVideoWindowFocused(focused);
+}
+
 bool Device::saveFrame(int width, int height, uint8_t* dataRGB32)
 {
     if (!dataRGB32) {

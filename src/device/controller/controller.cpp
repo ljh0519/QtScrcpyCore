@@ -186,6 +186,14 @@ bool Controller::isCurrentCustomKeymap()
     return m_inputConvert->isCurrentCustomKeymap();
 }
 
+void Controller::setVideoWindowFocused(bool focused)
+{
+    if (!m_inputConvert) {
+        return;
+    }
+    m_inputConvert->setVideoWindowFocused(focused);
+}
+
 void Controller::postBackOrScreenOn(bool down)
 {
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_BACK_OR_SCREEN_ON);

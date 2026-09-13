@@ -28,6 +28,7 @@ public:
 
     void updateScript(QString gameScript = "");
     bool isCurrentCustomKeymap();
+    void setVideoWindowFocused(bool focused);
 
     void postGoBack();
     void postGoHome();
