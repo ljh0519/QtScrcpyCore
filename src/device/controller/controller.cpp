@@ -5,6 +5,7 @@
 
 #include "controller.h"
 #include "controlmsg.h"
+#include "debug_log_batches.h"
 #include "inputconvertgame.h"
 #include "receiver.h"
 #include "videosocket.h"
@@ -52,6 +53,14 @@ QString Controller::controlTraceStageName(int stage) const
 void Controller::recordControlTrace(const ControlMsg *controlMsg, int stage,
                                     int bytes, qint64 written, bool success)
 {
+#if !QTSCRCPY_LOG_BATCH_ON(4)
+    Q_UNUSED(controlMsg);
+    Q_UNUSED(stage);
+    Q_UNUSED(bytes);
+    Q_UNUSED(written);
+    Q_UNUSED(success);
+    return;
+#else
     if (!controlMsg || !controlMsg->hasDebugTrace()) {
         return;
     }
@@ -68,10 +77,16 @@ void Controller::recordControlTrace(const ControlMsg *controlMsg, int stage,
     entry.success = success;
     m_controlTraceNext = (m_controlTraceNext + 1) % CONTROL_TRACE_CAPACITY;
     m_controlTraceSize = qMin(m_controlTraceSize + 1, CONTROL_TRACE_CAPACITY);
+#endif
 }
 
 void Controller::dumpControlTrace(quint64 gestureSequence, const QString &reason)
 {
+#if !QTSCRCPY_LOG_BATCH_ON(3)
+    Q_UNUSED(gestureSequence);
+    Q_UNUSED(reason);
+    return;
+#else
     const qint64 nowElapsed = m_controlTraceTimer.elapsed();
     const QDateTime now = QDateTime::currentDateTime();
     const int first = (m_controlTraceNext - m_controlTraceSize + CONTROL_TRACE_CAPACITY)
@@ -107,13 +122,16 @@ void Controller::dumpControlTrace(quint64 gestureSequence, const QString &reason
     qWarning().noquote() << controllerLogTime()
                          << "[ControlTrace] end"
                          << "matchedEntries:" << matchingEntries;
+#endif
 }
 
 void Controller::postControlMsg(ControlMsg *controlMsg)
 {
     if (!controlMsg) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
         qWarning().noquote() << controllerLogTime()
                              << "[Controller] postControlMsg ignored: null message";
+#endif
         return;
     }
 
@@ -125,11 +143,13 @@ void Controller::postControlMsg(ControlMsg *controlMsg)
                 || type == ControlMsg::CMT_CAMERA_ZOOM_IN
                 || type == ControlMsg::CMT_CAMERA_ZOOM_OUT;
         if (!isCameraControl) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
             qWarning().noquote() << controllerLogTime()
                                  << "[Controller] postControlMsg dropped in camera mode"
                                  << "msg:" << static_cast<const void *>(controlMsg)
                                  << "type:" << type
                                  << "traceSeq:" << controlMsg->debugSequence();
+#endif
             delete controlMsg;
             return;
         }
@@ -437,8 +457,10 @@ bool Controller::event(QEvent *event)
 bool Controller::sendControl(const QByteArray &buffer, ControlMsg *controlMsg)
 {
     if (buffer.isEmpty()) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
         qWarning().noquote() << controllerLogTime()
                              << "[Controller] sendControl failed: empty buffer";
+#endif
         return false;
     }
     qint32 len = 0;
@@ -447,8 +469,10 @@ bool Controller::sendControl(const QByteArray &buffer, ControlMsg *controlMsg)
         len = static_cast<qint32>(m_sendData(buffer));
         recordControlTrace(controlMsg, CTS_SEND_RESULT, buffer.size(), len, len == buffer.length());
     } else {
+#if QTSCRCPY_LOG_BATCH_ON(4)
         qWarning().noquote() << controllerLogTime()
                              << "[Controller] sendControl failed: no sender";
+#endif
     }
     return len == buffer.length() ? true : false;
 }

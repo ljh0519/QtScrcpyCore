@@ -7,6 +7,7 @@
 #include <QMetaEnum>
 
 #include "keymap.h"
+#include "debug_log_batches.h"
 
 KeyMap::KeyMap(QObject *parent) : QObject(parent) {}
 
@@ -238,12 +239,16 @@ void KeyMap::loadKeyMap(const QString &json)
                 QPair<ActionType, int> sprintKey = { AT_INVALID, -1 };
                 if (node.contains("sprintKey")) {
                     if (!checkItemString(node, "sprintKey")) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
                         qWarning() << "json error: keyMapNodes steer wheel sprintKey must be a string";
+#endif
                         break;
                     }
                     sprintKey = getItemKey(node, "sprintKey");
                     if (sprintKey.first == AT_INVALID) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
                         qWarning() << "json error: keyMapNodes node invalid sprintKey: " << node.value("sprintKey").toString();
+#endif
                         break;
                     }
                 }

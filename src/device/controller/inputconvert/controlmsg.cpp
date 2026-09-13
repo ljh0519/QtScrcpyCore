@@ -2,6 +2,7 @@
 
 #include "bufferutil.h"
 #include "controlmsg.h"
+#include "../debug_log_batches.h"
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 #define MAX(X, Y) ((X) > (Y) ? (X) : (Y))
@@ -73,11 +74,19 @@ void ControlMsg::setDebugInfo(const QString &debugInfo)
 
 void ControlMsg::setDebugTrace(quint64 sequence, quint64 gestureSequence, int action, int id)
 {
+#if !QTSCRCPY_LOG_BATCH_ON(1)
+    Q_UNUSED(sequence);
+    Q_UNUSED(gestureSequence);
+    Q_UNUSED(action);
+    Q_UNUSED(id);
+    return;
+#else
     m_debugTrace.enabled = true;
     m_debugTrace.sequence = sequence;
     m_debugTrace.gestureSequence = gestureSequence;
     m_debugTrace.action = action;
     m_debugTrace.id = id;
+#endif
 }
 
 void ControlMsg::setInjectScrollMsgData(QRect position, float hScroll, float vScroll, AndroidMotioneventButtons buttons)

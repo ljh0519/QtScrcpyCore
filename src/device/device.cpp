@@ -14,6 +14,7 @@
 #include "recorder.h"
 #include "server.h"
 #include "demuxer.h"
+#include "debug_log_batches.h"
 
 namespace qsc {
 
@@ -72,15 +73,18 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
         m_fileHandler = new FileHandler(this);
         m_controller = new Controller([this](const QByteArray& buffer) -> qint64 {
             if (!m_server || !m_server->getControlSocket()) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
                 qWarning().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
                                      << "[DeviceControlSocket] write skipped: socket unavailable"
                                      << "bytes:" << buffer.size();
+#endif
                 return 0;
             }
 
             auto *socket = m_server->getControlSocket();
             const qint64 written = socket->write(buffer.data(), buffer.length());
             if (written != buffer.length()) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
                 qWarning().noquote() << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
                                      << "[DeviceControlSocket] partial write"
                                      << "socket:" << static_cast<const void *>(socket)
@@ -89,6 +93,7 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
                                      << "written:" << written
                                      << "bytesToWrite:" << socket->bytesToWrite()
                                      << "error:" << socket->errorString();
+#endif
             }
             return written;
         }, m_params.gameScript, this);

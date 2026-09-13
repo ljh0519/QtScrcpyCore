@@ -11,6 +11,7 @@
 #endif
 
 #include "../controller.h"
+#include "../debug_log_batches.h"
 #include "inputconvertgame.h"
 
 #define CURSOR_POS_CHECK 50
@@ -77,6 +78,21 @@ void InputConvertGame::recordTrace(int stage, quint64 sequence, quint64 gestureS
                                    const QPointF &pos, const QPoint &absolutePos,
                                    int pressedNum, int queuePos, int queueTimer)
 {
+    const bool touchStage = stage == ITS_TOUCH_BEGIN || stage == ITS_TOUCH_POST || stage == ITS_TOUCH_DROP
+        || stage == ITS_TOUCH_ID_ATTACH || stage == ITS_TOUCH_ID_DETACH;
+    const bool steerStage = stage == ITS_INPUT_KEY || stage == ITS_WHEEL_STATE || stage == ITS_QUEUE_GENERATED
+        || stage == ITS_TIMER;
+#if !QTSCRCPY_LOG_BATCH_ON(1)
+    if (touchStage) {
+        return;
+    }
+#endif
+#if !QTSCRCPY_LOG_BATCH_ON(2)
+    if (steerStage) {
+        return;
+    }
+#endif
+
     TraceEntry &entry = m_trace[m_traceNext];
     entry.elapsedMs = m_logTimer.elapsed();
     entry.sequence = sequence;
@@ -96,6 +112,10 @@ void InputConvertGame::recordTrace(int stage, quint64 sequence, quint64 gestureS
 
 void InputConvertGame::dumpTrace(const QString &reason)
 {
+#if !QTSCRCPY_LOG_BATCH_ON(3)
+    Q_UNUSED(reason);
+    return;
+#else
     const qint64 nowElapsed = m_logTimer.elapsed();
     const QDateTime now = QDateTime::currentDateTime();
     const int first = (m_traceNext - m_traceSize + TRACE_CAPACITY) % TRACE_CAPACITY;
@@ -130,10 +150,16 @@ void InputConvertGame::dumpTrace(const QString &reason)
     }
 
     qWarning().noquote() << logTime() << "[TouchTrace] end";
+#endif
 }
 
 void InputConvertGame::logSteerWheelSummary(const QString &reason, int id)
 {
+#if !QTSCRCPY_LOG_BATCH_ON(3)
+    Q_UNUSED(reason);
+    Q_UNUSED(id);
+    return;
+#else
     const auto &delayData = m_ctrlSteerWheel.delayData;
     const qint64 duration = delayData.downTimeMs >= 0 && delayData.upTimeMs >= delayData.downTimeMs
         ? delayData.upTimeMs - delayData.downTimeMs : -1;
@@ -160,6 +186,7 @@ void InputConvertGame::logSteerWheelSummary(const QString &reason, int id)
     if (m_dumpTraceOnGestureEnd || id < 0 || delayData.moveCount == 0 || firstMoveDelay < 0) {
         dumpTrace(reason);
     }
+#endif
 }
 
 void InputConvertGame::mouseEvent(const QMouseEvent *from, const QSize &frameSize, const QSize &showSize)
@@ -203,7 +230,9 @@ void InputConvertGame::wheelEvent(const QWheelEvent *from, const QSize &frameSiz
 void InputConvertGame::keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize)
 {
     if (!from) {
+#if QTSCRCPY_LOG_BATCH_ON(4)
         qWarning().noquote() << logTime() << "[InputKeyEvent] received null event";
+#endif
         return;
     }
 
@@ -346,9 +375,11 @@ void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAct
 
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_INJECT_TOUCH);
     if (!controlMsg) {
+#if QTSCRCPY_LOG_BATCH_ON(1)
         qCritical().noquote() << logTime()
                               << "[TouchEvent] dropped: failed to allocate ControlMsg"
                               << "seq:" << sequence;
+#endif
         return;
     }
 
@@ -379,7 +410,9 @@ void InputConvertGame::sendTouchEvent(int id, QPointF pos, AndroidMotioneventAct
         static_cast<AndroidMotioneventButtons>(0),
         QRect(absolutePos, m_frameSize),
         AMOTION_EVENT_ACTION_DOWN == action ? 1.0f : 0.0f);
+#if QTSCRCPY_LOG_BATCH_ON(1)
     controlMsg->setDebugTrace(sequence, gestureSequence, static_cast<int>(action), id);
+#endif
     recordTrace(ITS_TOUCH_POST, sequence, gestureSequence, m_ctrlSteerWheel.touchKey,
                 id, action, pos, absolutePos, m_ctrlSteerWheel.delayData.pressedNum,
                 m_ctrlSteerWheel.delayData.queuePos.size(),
@@ -420,11 +453,13 @@ int InputConvertGame::attachTouchID(int key)
                 m_ctrlSteerWheel.delayData.traceSequence, key, existingId);
 
     if (existingId != -1) {
+#if QTSCRCPY_LOG_BATCH_ON(1)
         qWarning().noquote() << logTime()
                              << "[TouchID] duplicate attach request"
                              << "key:" << key
                              << "existingID:" << existingId
                              << "state:" << touchIDState();
+#endif
         dumpTrace(QStringLiteral("duplicate-touch-id-attach"));
     }
 
@@ -437,10 +472,12 @@ int InputConvertGame::attachTouchID(int key)
         }
     }
 
+#if QTSCRCPY_LOG_BATCH_ON(1)
     qWarning().noquote() << logTime()
                          << "[TouchID] attach failed: no free slot"
                          << "key:" << key
                          << "state:" << touchIDState();
+#endif
     dumpTrace(QStringLiteral("no-free-touch-id"));
     return -1;
 }
@@ -457,10 +494,12 @@ void InputConvertGame::detachTouchID(int key)
         }
     }
 
+#if QTSCRCPY_LOG_BATCH_ON(1)
     qWarning().noquote() << logTime()
                          << "[TouchID] detach requested for unknown key"
                          << "key:" << key
                          << "state:" << touchIDState();
+#endif
     dumpTrace(QStringLiteral("unknown-touch-id-detach"));
 }
 
@@ -586,12 +625,14 @@ void InputConvertGame::processSteerWheel(const KeyMap::KeyMapNode &node, const Q
     } else if (node.data.steerWheel.sprint.type != KeyMap::AT_INVALID
                && key == node.data.steerWheel.sprint.key) {
         m_ctrlSteerWheel.pressedSprint = flag;
+#if QTSCRCPY_LOG_BATCH_ON(4)
         qInfo().noquote() << logTime()
                           << "[SteerWheel] sprint key"
                           << "key:" << key
                           << "isPress:" << flag
                           << "pressedUp:" << m_ctrlSteerWheel.pressedUp
                           << "pressedSprint:" << m_ctrlSteerWheel.pressedSprint;
+#endif
     } else { // left
         m_ctrlSteerWheel.pressedLeft = flag;
     }
