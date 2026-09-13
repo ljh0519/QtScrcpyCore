@@ -1016,6 +1016,13 @@ bool InputConvertGame::switchGameMap()
     m_gameMap = !m_gameMap;
     qInfo() << QString("current keymap mode: %1").arg(m_gameMap ? "custom" : "normal");
 
+    // switchKey is the recovery path for stuck injected touches (e.g. after
+    // physical phone screen touch). Always lift all fingers on mode toggle.
+    resetStuckTouches();
+    if (!m_gameMap) {
+        m_needBackMouseMove = false;
+    }
+
     if (!m_keyMap.isValidMouseMoveMap()) {
         return m_gameMap;
     }
@@ -1024,11 +1031,6 @@ bool InputConvertGame::switchGameMap()
     emit grabCursor(m_gameMap);
 #endif
     hideMouseCursor(m_gameMap);
-
-    if (!m_gameMap) {
-        stopMouseMoveTimer();
-        mouseMoveStopTouch();
-    }
 
     return m_gameMap;
 }
