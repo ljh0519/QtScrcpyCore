@@ -222,9 +222,13 @@ void InputConvertGame::wheelEvent(const QWheelEvent *from, const QSize &frameSiz
 {
     if (m_gameMap) {
         updateSize(frameSize, showSize);
-    } else {
-        InputConvertNormal::wheelEvent(from, frameSize, showSize);
+        if (processMouseWheel(from)) {
+            return;
+        }
+        // Unmapped wheel is swallowed in game keymap mode (same as before).
+        return;
     }
+    InputConvertNormal::wheelEvent(from, frameSize, showSize);
 }
 
 void InputConvertGame::keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize)
@@ -900,6 +904,66 @@ bool InputConvertGame::processMouseClick(const QMouseEvent *from)
         return true;
     }
     return false;
+}
+
+bool InputConvertGame::processMouseWheel(const QWheelEvent *from)
+{
+    if (!from || from->angleDelta().isNull()) {
+        return false;
+    }
+
+    const int deltaY = from->angleDelta().y();
+    if (0 == deltaY) {
+        return false;
+    }
+
+    const int wheelKey = deltaY > 0 ? KeyMap::MouseWheelUp : KeyMap::MouseWheelDown;
+    const KeyMap::KeyMapNode &node = m_keyMap.getKeyMapNodeMouse(wheelKey);
+    if (KeyMap::KMT_INVALID == node.type) {
+        return false;
+    }
+
+    // One standard notch is 120; treat smaller pixel deltas as a single step.
+    int steps = qAbs(deltaY) / 120;
+    if (0 == steps) {
+        steps = 1;
+    }
+
+    // Wheel has no press/release; synthesize a full key stroke per notch.
+    QKeyEvent pressEvent(QEvent::KeyPress, wheelKey, Qt::NoModifier);
+    QKeyEvent releaseEvent(QEvent::KeyRelease, wheelKey, Qt::NoModifier);
+
+    for (int i = 0; i < steps; ++i) {
+        switch (node.type) {
+        case KeyMap::KMT_CLICK:
+            processKeyClick(node.data.click.keyNode.pos, false, false, &pressEvent);
+            processKeyClick(node.data.click.keyNode.pos, false, false, &releaseEvent);
+            break;
+        case KeyMap::KMT_CLICK_TWICE:
+            processKeyClick(node.data.clickTwice.keyNode.pos, true, false, &pressEvent);
+            processKeyClick(node.data.clickTwice.keyNode.pos, true, false, &releaseEvent);
+            break;
+        case KeyMap::KMT_CLICK_MULTI:
+            processKeyClickMulti(node.data.clickMulti.keyNode.delayClickNodes,
+                                 node.data.clickMulti.keyNode.delayClickNodesCount,
+                                 &pressEvent);
+            break;
+        case KeyMap::KMT_DRAG:
+            processKeyDrag(node.data.drag.keyNode.pos,
+                           node.data.drag.keyNode.extendPos,
+                           node.data.drag.startDelay,
+                           node.data.drag.dragSpeed,
+                           &pressEvent);
+            break;
+        case KeyMap::KMT_ANDROID_KEY:
+            processAndroidKey(node.data.androidKey.keyNode.androidKey, &pressEvent);
+            processAndroidKey(node.data.androidKey.keyNode.androidKey, &releaseEvent);
+            break;
+        default:
+            return false;
+        }
+    }
+    return true;
 }
 
 bool InputConvertGame::processMouseMove(const QMouseEvent *from)

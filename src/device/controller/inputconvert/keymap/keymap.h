@@ -38,6 +38,11 @@ public:
     };
     Q_ENUM(ActionType)
 
+    // Synthetic mouse codes for wheel mapping (outside Qt::MouseButton range).
+    // Use "WheelUp" / "WheelDown" as key in keymap JSON.
+    static constexpr int MouseWheelUp = 0x10000001;
+    static constexpr int MouseWheelDown = 0x10000002;
+
     struct DelayClickNode
     {
         int delay = 0;

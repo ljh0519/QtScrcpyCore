@@ -69,6 +69,7 @@ protected:
 
     // mouse
     bool processMouseClick(const QMouseEvent *from);
+    bool processMouseWheel(const QWheelEvent *from);
     bool processMouseMove(const QMouseEvent *from);
     void moveCursorTo(const QMouseEvent *from, const QPoint &localPosPixel);
     void mouseMoveStartTouch(const QMouseEvent *from);

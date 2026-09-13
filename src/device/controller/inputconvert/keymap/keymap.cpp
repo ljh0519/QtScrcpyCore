@@ -463,6 +463,12 @@ QPointF KeyMap::getItemPos(const QJsonObject &node, const QString &name)
 QPair<KeyMap::ActionType, int> KeyMap::getItemKey(const QJsonObject &node, const QString &name)
 {
     QString value = getItemString(node, name);
+    if (value == QLatin1String("WheelUp")) {
+        return { AT_MOUSE, MouseWheelUp };
+    }
+    if (value == QLatin1String("WheelDown")) {
+        return { AT_MOUSE, MouseWheelDown };
+    }
     int key = m_metaEnumKey.keyToValue(value.toStdString().c_str());
     int btn = m_metaEnumMouseButtons.keyToValue(value.toStdString().c_str());
     if (key == -1 && btn == -1) {
