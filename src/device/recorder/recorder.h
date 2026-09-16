@@ -27,6 +27,7 @@ public:
     virtual ~Recorder();
 
     void setFrameSize(const QSize &declaredFrameSize);
+    void setCodecId(AVCodecID codecId);
     void setFormat(Recorder::RecorderFormat format);
     bool open();
     void close();
@@ -54,6 +55,7 @@ private:
     QString m_fileName = "";
     AVFormatContext *m_formatCtx = Q_NULLPTR;
     QSize m_declaredFrameSize;
+    AVCodecID m_codecId = AV_CODEC_ID_H264;
     bool m_headerWritten = false;
     RecorderFormat m_format = RECORDER_FORMAT_NULL;
     QMutex m_mutex;

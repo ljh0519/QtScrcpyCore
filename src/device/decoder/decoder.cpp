@@ -4,9 +4,11 @@
 #include "decoder.h"
 #include "videobuffer.h"
 
-Decoder::Decoder(std::function<void(int, int, uint8_t*, uint8_t*, uint8_t*, int, int, int)> onFrame, QObject *parent)
+Decoder::Decoder(std::function<void(int, int, uint8_t*, uint8_t*, uint8_t*, int, int, int)> onFrame,
+                 AVCodecID codecId, QObject *parent)
     : IDecoder(parent)
     , m_vb(new VideoBuffer())
+    , m_codecId(codecId)
     , m_onFrame(onFrame)
 {
     m_vb->init();
@@ -19,12 +21,32 @@ Decoder::~Decoder() {
     delete m_vb;
 }
 
+namespace qsc {
+
+bool isVideoCodecSupported(const QString &videoCodec)
+{
+    const AVCodecID codecId = videoCodec.compare("h265", Qt::CaseInsensitive) == 0
+        ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+    if (!avcodec_find_decoder(codecId)) {
+        return false;
+    }
+
+    AVCodecParserContext *parser = av_parser_init(codecId);
+    if (!parser) {
+        return false;
+    }
+    av_parser_close(parser);
+    return true;
+}
+
+} // namespace qsc
+
 bool Decoder::open()
 {
     // codec
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodec* codec = avcodec_find_decoder(m_codecId);
     if (!codec) {
-        qCritical("H.264 decoder not found");
+        qCritical("Video decoder not found");
         return false;
     }
 
@@ -35,9 +57,10 @@ bool Decoder::open()
         return false;
     }
     if (avcodec_open2(m_codecCtx, codec, NULL) < 0) {
-        qCritical("Could not open H.264 codec");
+        qCritical("Could not open video codec");
         return false;
     }
+    qInfo() << "Video decoder opened:" << codec->name;
     m_isCodecCtxOpen = true;
     return true;
 }

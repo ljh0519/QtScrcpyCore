@@ -20,6 +20,12 @@ namespace qsc {
 
 Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params(params)
 {
+    m_params.videoCodec = m_params.videoCodec.trimmed().toLower();
+    if (m_params.videoCodec != "h265") {
+        m_params.videoCodec = "h264";
+    }
+    const AVCodecID codecId = m_params.videoCodec == "h265" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+
     if (isCameraMode()) {
         // Camera capture has no Android display target. Normalize every
         // display-only option here so all callers (UI, group control, or
@@ -47,7 +53,8 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
         // 根据 decodeMode 工厂创建解码器
         bool useVT = false;
 #ifdef Q_OS_MACOS
-        useVT = (m_params.decodeMode == MODE_VT_METAL && VTDecoder::isAvailable());
+        useVT = (m_params.videoCodec == "h264"
+                 && m_params.decodeMode == MODE_VT_METAL && VTDecoder::isAvailable());
 #endif
         if (useVT) {
 #ifdef Q_OS_MACOS
@@ -64,7 +71,7 @@ Device::Device(DeviceParams params, QObject *parent) : IDevice(parent), m_params
                 for (const auto& item : m_deviceObservers) {
                     item->onFrame(width, height, dataY, dataU, dataV, linesizeY, linesizeU, linesizeV);
                 }
-            }, this);
+            }, codecId, this);
         }
         if (m_decoder) {
             m_decoder->setRenderExpiredFrames(m_params.renderExpiredFrames);
@@ -154,6 +161,11 @@ void Device::deRegisterDeviceObserver(DeviceObserver *observer)
 const QString &Device::getSerial()
 {
     return m_params.serial;
+}
+
+QString Device::getVideoCodec() const
+{
+    return m_server ? m_server->videoCodec() : QString();
 }
 
 bool Device::isCameraMode() const
@@ -279,14 +291,28 @@ void Device::initSignals()
     if (m_server) {
         connect(m_server, &Server::serverStarted, this, [this](bool success, const QString &deviceName, const QSize &size) {
             m_serverStartSuccess = success;
+            if (success) {
+                const AVCodecID codecId = m_params.videoCodec == "h265"
+                    ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+                if (m_decoder && !m_decoder->open()) {
+                    qCritical() << "Failed to open video decoder for:" << m_params.videoCodec;
+                    m_serverStartSuccess = false;
+                    m_server->stop();
+                    emit deviceConnected(false, m_params.serial, deviceName, size);
+                    return;
+                }
+            }
             emit deviceConnected(success, m_params.serial, deviceName, size);
             if (success) {
+                const AVCodecID codecId = m_params.videoCodec == "h265"
+                    ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
                 double diff = m_startTimeCount.elapsed() / 1000.0;
                 qInfo() << QString("server start finish in %1s").arg(diff).toStdString().c_str();
 
                 // init recorder
                 if (m_recorder) {
                     m_recorder->setFrameSize(size);
+                    m_recorder->setCodecId(codecId);
                     if (!m_recorder->open()) {
                         qCritical("Could not open recorder");
                     }
@@ -296,14 +322,10 @@ void Device::initSignals()
                     }
                 }
 
-                // init decoder
-                if (m_decoder) {
-                    m_decoder->open();
-                }
-
                 // init stream
                 m_stream->installVideoSocket(m_server->removeVideoSocket());
                 m_stream->setFrameSize(size);
+                m_stream->setCodecId(codecId);
                 m_stream->startDecode();
 
                 // recv device msg
@@ -388,7 +410,7 @@ void Device::initSignals()
             for (const auto& item : m_deviceObservers) {
                 item->updateFPS(fps);
             }
-        });
+        }, Qt::QueuedConnection);
     }
 }
 
@@ -428,6 +450,7 @@ bool Device::connectDevice()
         params.maxSize = m_params.maxSize;
         params.bitRate = m_params.bitRate;
         params.maxFps = m_params.maxFps;
+        params.videoCodec = m_params.videoCodec;
         params.videoSource = m_params.videoSource;
         params.cameraFacing = m_params.cameraFacing;
         params.cameraId = m_params.cameraId;

@@ -1,4 +1,4 @@
-﻿#ifndef DEVICE_H
+#ifndef DEVICE_H
 #define DEVICE_H
 
 #include <set>
@@ -76,6 +76,7 @@ public:
 
     bool isReversePort(quint16 port) override;
     const QString &getSerial() override;
+    QString getVideoCodec() const override;
     bool isCameraMode() const override;
     bool isFlexDisplay() const override;
 

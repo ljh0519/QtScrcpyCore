@@ -43,6 +43,11 @@ void Recorder::setFrameSize(const QSize &declaredFrameSize)
     m_declaredFrameSize = declaredFrameSize;
 }
 
+void Recorder::setCodecId(AVCodecID codecId)
+{
+    m_codecId = codecId;
+}
+
 void Recorder::setFormat(Recorder::RecorderFormat format)
 {
     m_format = format;
@@ -51,9 +56,9 @@ void Recorder::setFormat(Recorder::RecorderFormat format)
 bool Recorder::open()
 {
     // codec
-    const AVCodec* inputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodec* inputCodec = avcodec_find_decoder(m_codecId);
     if (!inputCodec) {
-        qCritical("H.264 decoder not found");
+        qCritical("Video recorder codec not found");
         return false;
     }
 

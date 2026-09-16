@@ -9,6 +9,11 @@ enum DecodeMode {
 
 namespace qsc {
 
+enum RtxVsrMode {
+    RTX_VSR_OFF = 0,
+    RTX_VSR_DX11 = 1,
+};
+
 enum VideoSource {
     VIDEO_SOURCE_DISPLAY = 0,
     VIDEO_SOURCE_CAMERA,
@@ -30,6 +35,8 @@ struct DeviceParams {
     quint16 maxSize = 720;            // 视频分辨率
     quint32 bitRate = 2000000;        // 视频比特率
     quint32 maxFps = 0;               // 视频最大帧率
+    // scrcpy video_codec: h264 (default) or h265.
+    QString videoCodec = "h264";
     VideoSource videoSource = VIDEO_SOURCE_DISPLAY;
     CameraFacing cameraFacing = CAMERA_FACING_BACK;
     QString cameraId = "";            // 指定相机 ID，空值时按 cameraFacing 选择
@@ -43,7 +50,7 @@ struct DeviceParams {
     // 例如 CodecOptions="profile=1,level=2"
     // 更多编码选项参考 https://d.android.com/reference/android/media/MediaFormat
     QString codecOptions = "";
-    // 指定编码器名称(必须是H.264编码器)，""表示默认
+    // 指定所选 videoCodec 对应的编码器名称，""表示默认
     // 例如 CodecName="OMX.qcom.video.encoder.avc"
     QString codecName = "";
     quint32 scid = -1; // 随机数，作为localsocket名字后缀，方便同时连接同一个设备多次
@@ -68,6 +75,12 @@ struct DeviceParams {
     bool renderExpiredFrames = false; // 是否渲染延迟视频帧
     QString gameScript = "";          // 游戏映射脚本
     int decodeMode = 0;               // 0=FFmpeg OpenGL (默认), 1=VideoToolbox Metal (Apple Silicon)
+    int vsrMode = RTX_VSR_OFF;        // 0=关闭, 1=DX11 RTX VSR
+    int vsrQuality = 2;               // SDK: 1=Low, 2=Medium, 3=High, 4=Ultra
 };
+
+// Returns whether the bundled FFmpeg has the decoder and parser required for
+// the requested elementary video stream.
+bool isVideoCodecSupported(const QString &videoCodec);
     
 }

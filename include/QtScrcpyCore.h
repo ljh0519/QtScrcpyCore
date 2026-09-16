@@ -142,6 +142,7 @@ public:
 
     virtual bool isReversePort(quint16 port) = 0;
     virtual const QString &getSerial() = 0;
+    virtual QString getVideoCodec() const { return QString(); }
     virtual bool isCameraMode() const { return false; }
     virtual bool isFlexDisplay() const { return false; }
 

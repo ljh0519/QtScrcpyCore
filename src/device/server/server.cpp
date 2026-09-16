@@ -1,4 +1,5 @@
 #include <QCoreApplication>
+#include <QByteArray>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -28,7 +29,7 @@ Server::Server(QObject *parent) : QObject(parent)
         QTcpSocket *tmp = m_serverSocket.nextPendingConnection();
         if (dynamic_cast<VideoSocket *>(tmp)) {
             m_videoSocket = dynamic_cast<VideoSocket *>(tmp);
-            if (!m_videoSocket->isValid() || !readInfo(m_videoSocket, m_deviceName, m_deviceSize)) {
+            if (!m_videoSocket->isValid() || !readInfo(m_videoSocket, m_deviceName, m_deviceSize, m_videoCodec)) {
                 stop();
                 emit serverStarted(false);
             }
@@ -52,6 +53,11 @@ Server::Server(QObject *parent) : QObject(parent)
 }
 
 Server::~Server() {}
+
+QString Server::videoCodec() const
+{
+    return m_videoCodec;
+}
 
 bool Server::pushServer()
 {
@@ -138,6 +144,7 @@ bool Server::execute()
     args << m_params.serverVersion;
 
     args << QString("video_bit_rate=%1").arg(QString::number(m_params.bitRate));
+    args << QString("video_codec=%1").arg(m_params.videoCodec);
     const bool cameraMode = m_params.videoSource == qsc::VIDEO_SOURCE_CAMERA;
     if (cameraMode) {
         args << "video_source=camera";
@@ -368,7 +375,7 @@ bool Server::startServerByStep()
     return stepSuccess;
 }
 
-bool Server::readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size)
+bool Server::readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size, QString &codec)
 {
     QElapsedTimer timer;
     timer.start();
@@ -382,15 +389,42 @@ bool Server::readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size
     }
     qDebug() << "readInfo wait time:" << timer.elapsed();
 
-    qint64 len = videoSocket->read((char *)buf, sizeof(buf));
-    if (len < DEVICE_NAME_FIELD_LENGTH + VIDEO_META_LENGTH) {
+    const qint64 expectedLength = DEVICE_NAME_FIELD_LENGTH + VIDEO_META_LENGTH;
+    qint64 len = 0;
+    while (len < expectedLength) {
+        const qint64 readLength = videoSocket->read(reinterpret_cast<char *>(buf) + len,
+                                                    expectedLength - len);
+        if (readLength <= 0) {
+            break;
+        }
+        len += readLength;
+    }
+    if (len < expectedLength) {
         qInfo("Could not retrieve device information");
         return false;
     }
     buf[DEVICE_NAME_FIELD_LENGTH - 1] = '\0'; // in case the client sends garbage
     deviceName = QString::fromUtf8((const char *)buf);
 
-    // scrcpy 4.x: codec id (4 bytes), then session metadata (flags, width, height).
+    // scrcpy 4.1: codec id (4 bytes), reserved/flags (4 bytes),
+    // width (4 bytes), height (4 bytes).
+    const QByteArray codecId(reinterpret_cast<const char *>(&buf[DEVICE_NAME_FIELD_LENGTH]), 4);
+    const QString codecName = QString::fromLatin1(codecId).trimmed().toLower();
+    if (codecName == "h264") {
+        codec = "H.264 / AVC";
+    } else if (codecName == "h265") {
+        codec = "H.265 / HEVC";
+    } else if (codecName == "av1") {
+        codec = "AV1";
+    } else {
+        codec = QString("Unknown (0x%1)").arg(QString::fromLatin1(codecId.toHex()));
+    }
+    const QString expectedCodec = m_params.videoCodec == "h265" ? "h265" : "h264";
+    if (codecName != expectedCodec) {
+        qCritical() << "Android server returned codec" << codecName
+                    << "but" << expectedCodec << "was requested";
+        return false;
+    }
     size.setWidth(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 8]));
     size.setHeight(bufferRead32be(&buf[DEVICE_NAME_FIELD_LENGTH + 12]));
 
@@ -460,7 +494,7 @@ void Server::onConnectTimer()
         videoSocket->waitForReadyRead(1000);
         // devices will send 1 byte first on tunnel forward mode
         QByteArray data = videoSocket->read(1);
-        if (!data.isEmpty() && readInfo(videoSocket, deviceName, deviceSize)) {
+        if (!data.isEmpty() && readInfo(videoSocket, deviceName, deviceSize, m_videoCodec)) {
             success = true;
             goto result;
         } else {

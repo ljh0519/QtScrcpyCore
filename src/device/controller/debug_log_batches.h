@@ -9,7 +9,7 @@
 //   0     all batches off
 //  -1     all batches on
 #ifndef QTSCRCPY_LOG_BATCH
-#define QTSCRCPY_LOG_BATCH 2
+#define QTSCRCPY_LOG_BATCH 4
 #endif
 
 #define QTSCRCPY_LOG_BATCH_ON(n) (((QTSCRCPY_LOG_BATCH) == (n)) || ((QTSCRCPY_LOG_BATCH) < 0))

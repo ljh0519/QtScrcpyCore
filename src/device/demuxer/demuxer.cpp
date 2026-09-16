@@ -79,6 +79,11 @@ void Demuxer::setFrameSize(const QSize &frameSize)
     m_frameSize = frameSize;
 }
 
+void Demuxer::setCodecId(AVCodecID codecId)
+{
+    m_codecId = codecId;
+}
+
 static quint32 bufferRead32be(quint8 *buf)
 {
     return static_cast<quint32>((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]);
@@ -122,9 +127,9 @@ void Demuxer::run()
     AVPacket *packet = Q_NULLPTR;
 
     // codec
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodec* codec = avcodec_find_decoder(m_codecId);
     if (!codec) {
-        qCritical("H.264 decoder not found");
+        qCritical("Video parser decoder not found");
         goto runQuit;
     }
 
@@ -139,9 +144,9 @@ void Demuxer::run()
     m_codecCtx->height = m_frameSize.height();
     m_codecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
 
-    m_parser = av_parser_init(AV_CODEC_ID_H264);
+    m_parser = av_parser_init(m_codecId);
     if (!m_parser) {
-        qCritical("Could not initialize parser");
+        qCritical() << "Could not initialize parser for codec:" << codec->name;
         goto runQuit;
     }
 

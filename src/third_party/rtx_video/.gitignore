@@ -1,0 +1,2 @@
+﻿# NVIDIA proprietary runtime (from RTX Video SDK / NVEnc packages)
+*.dll

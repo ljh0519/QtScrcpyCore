@@ -25,6 +25,7 @@ public:
 
     void installVideoSocket(VideoSocket* videoSocket);
     void setFrameSize(const QSize &frameSize);
+    void setCodecId(AVCodecID codecId);
     bool startDecode();
     void stopDecode();
 
@@ -46,6 +47,7 @@ protected:
 private:
     QPointer<VideoSocket> m_videoSocket;
     QSize m_frameSize;
+    AVCodecID m_codecId = AV_CODEC_ID_H264;
 
     AVCodecContext *m_codecCtx = Q_NULLPTR;
     AVCodecParserContext *m_parser = Q_NULLPTR;

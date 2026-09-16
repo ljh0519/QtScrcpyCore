@@ -37,6 +37,7 @@ public:
         quint16 maxSize = 720;         // 视频分辨率
         quint32 bitRate = 8000000;     // 视频比特率
         quint32 maxFps = 0;            // 视频最大帧率
+        QString videoCodec = "h264";
         qsc::VideoSource videoSource = qsc::VIDEO_SOURCE_DISPLAY;
         qsc::CameraFacing cameraFacing = qsc::CAMERA_FACING_BACK;
         QString cameraId = "";
@@ -50,7 +51,7 @@ public:
         // 例如 CodecOptions="profile=1,level=2"
         // 更多编码选项参考 https://d.android.com/reference/android/media/MediaFormat
         QString codecOptions = "";
-        // 指定编码器名称(必须是H.264编码器)，""表示默认
+        // 指定 videoCodec 对应的编码器名称，""表示默认
         // 例如 CodecName="OMX.qcom.video.encoder.avc"
         QString codecName = "";
 
@@ -72,6 +73,7 @@ public:
     bool start(Server::ServerParams params);
     void stop();
     bool isReverse();
+    QString videoCodec() const;
     Server::ServerParams getParams();
     VideoSocket *removeVideoSocket();
     QTcpSocket *getControlSocket();
@@ -95,7 +97,7 @@ private:
     bool execute();
     bool connectTo();
     bool startServerByStep();
-    bool readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size);
+    bool readInfo(VideoSocket *videoSocket, QString &deviceName, QSize &size, QString &codec);
     void startAcceptTimeoutTimer();
     void stopAcceptTimeoutTimer();
     void startConnectTimeoutTimer();
@@ -116,6 +118,7 @@ private:
     quint32 m_restartCount = 0;
     QString m_deviceName = "";
     QSize m_deviceSize = QSize();
+    QString m_videoCodec;
     ServerParams m_params;
 
     SERVER_START_STEP m_serverStartStep = SSS_NULL;

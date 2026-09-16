@@ -121,6 +121,27 @@ set(QSC_DEVICE_SOURCES
     src/device/demuxer/demuxer.h
     src/device/demuxer/demuxer.cpp
 )
+
+# RTX Video SDK is optional. Only add sources and link dependencies when the
+# complete SDK installation is present; this keeps non-Windows builds clean.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(NOT RTX_VIDEO_SDK AND DEFINED ENV{RTX_VIDEO_SDK})
+        set(RTX_VIDEO_SDK "$ENV{RTX_VIDEO_SDK}")
+    endif()
+    if(RTX_VIDEO_SDK
+       AND EXISTS "${RTX_VIDEO_SDK}/include/nvsdk_ngx.h"
+       AND EXISTS "${RTX_VIDEO_SDK}/include/nvsdk_ngx_defs_vsr.h"
+       AND EXISTS "${RTX_VIDEO_SDK}/lib/Windows/x64/nvsdk_ngx_s.lib")
+        message(STATUS "[QtScrcpyCore] RTX Video SDK enabled: ${RTX_VIDEO_SDK}")
+        list(APPEND QSC_DEVICE_SOURCES
+            src/device/rtxvideo/rtx_video_vsr.h
+            src/device/rtxvideo/rtx_video_vsr.cpp
+        )
+        set(QSC_HAS_RTX_VIDEO_SDK TRUE)
+    else()
+        message(STATUS "[QtScrcpyCore] RTX Video SDK disabled: complete x64 SDK not found")
+    endif()
+endif()
 source_group(src/device FILES ${QSC_DEVICE_SOURCES})
 
 # devicemanage
@@ -159,6 +180,13 @@ target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/device/controller/inputconvert/keymap)
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/device/server)
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/device/demuxer)
+if(QSC_HAS_RTX_VIDEO_SDK)
+    target_include_directories(${QSC_PROJECT_NAME} PRIVATE "${RTX_VIDEO_SDK}/include")
+    target_compile_definitions(${QSC_PROJECT_NAME} PRIVATE QTSCRCPY_HAS_RTX_VIDEO_SDK=1)
+    target_compile_options(${QSC_PROJECT_NAME} PRIVATE /MT)
+    set(QSC_RTX_NGX_RELEASE_LIB "${RTX_VIDEO_SDK}/lib/Windows/x64/nvsdk_ngx_s.lib")
+    set(QSC_RTX_NGX_DEBUG_LIB "${RTX_VIDEO_SDK}/lib/Windows/x64/nvsdk_ngx_s_dbg.lib")
+endif()
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/device/ui)
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/device/recorder)
 target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/devicemanage)
@@ -169,6 +197,13 @@ target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 
 # windows
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(QSC_HAS_RTX_VIDEO_SDK)
+        target_link_libraries(${QSC_PROJECT_NAME} PRIVATE
+            d3d11
+            dxgi
+            $<IF:$<CONFIG:Debug>,${QSC_RTX_NGX_DEBUG_LIB},${QSC_RTX_NGX_RELEASE_LIB}>
+        )
+    endif()
     # ffmpeg
     # include
     target_include_directories(${QSC_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/ffmpeg/include)
